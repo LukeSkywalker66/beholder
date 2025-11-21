@@ -6,19 +6,23 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
-            pppoe_user TEXT PRIMARY KEY,
-            external_id TEXT,
-            onu_id TEXT,
-            node_code TEXT,
-            vlan_info TEXT,
-            updated_at TEXT
+            unique_external_id TEXT PRIMARY KEY,
+            sn TEXT,
+            olt_name TEXT,
+            olt_id TEXT,
+            board TEXT,
+            port TEXT,
+            onu TEXT,
+            onu_type_id TEXT,
+            name TEXT,
+            mode TEXT
         )
     """)
     conn.commit()
     conn.close()
 
 def insert_subscriber(unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode):
-    conn = sqlite3.connect("diag.db")   # o beholder.db, según uses
+    conn = sqlite3.connect(config.DB_PATH)   # o beholder.db, según uses
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO subscribers (
