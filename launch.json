@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug API",
+      "type": "python",
+      "request": "launch",
+      "module": "app.main",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug sync",
+      "type": "python",
+      "request": "launch",
+      "module": "db.sync",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
