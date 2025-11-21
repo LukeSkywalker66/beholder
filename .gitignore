@@ -1,0 +1,27 @@
+# Entornos virtuales
+venv/
+.env/
+.venv/
+
+# Archivos compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de logs
+logs/
+*.log
+
+# Configuración de IDEs
+.vscode/
+.idea/
+*.swp
+
+# Archivos de entorno
+config/.env
+config/.env.local
+config/.env.*.local
+config/.env.*.development
+config/.env.*.production
+config/.env.*.test
