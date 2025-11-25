@@ -13,6 +13,27 @@ Su objetivo es unificar consultas técnicas a SmartOLT, Mikrotik y GenieACS, res
 
 ## 📂 Estructura del proyecto
 
+beholder
+ ├─ readme.md
+ ├─ requirements.txt
+ ├─ test.http
+ ├─ app/
+ │   ├─ __init__.py
+ │   ├─ config.py
+ │   ├─ main.py
+ │   └─ nightly.py
+ ├─ config/
+ │   └─ .env
+ ├─ data/
+ │   └─ diag.db
+ └─ services/
+     ├─ __init__.py
+     ├─ ispcube.py
+     ├─ mikrotik.py
+     └─ smartolt.py
+
+
+
 beholder/
 ├── app/
 │   ├── __init__.py

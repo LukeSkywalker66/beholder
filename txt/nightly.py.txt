@@ -1,0 +1,67 @@
+# app/nightly.py
+import sqlite3
+from db.sqlite import get_connection
+from smartolt import api as smartolt_api
+from ispcube import api as ispcube_api
+
+def nightly_sync():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 1. SmartOLT: lote ONUs
+    onus = smartolt_api.get_all_onus_details()
+    for onu in onus:
+        cursor.execute("""
+            INSERT OR REPLACE INTO subscribers (
+                pppoe_username, onu_external_id, olt_name, board, port, sn
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            onu["pppoe_username"],
+            onu["onu_external_id"],
+            onu["olt_name"],
+            onu["board"],
+            onu["port"],
+            onu["sn"]
+        ))
+
+    # 2. ISPCube: nodos
+    nodes = ispcube_api.get_nodes()
+    for node in nodes:
+        cursor.execute("""
+            INSERT OR REPLACE INTO nodes (
+                node_id, name, ip_address
+            ) VALUES (?, ?, ?)
+        """, (
+            node["id"],
+            node["name"],
+            node["ip"]
+        ))
+
+    # Paso 3: ISPCube: conexiones PPPoE → node_id + connection_id
+    connections = ispcube_api.get_connections()
+    for conn_data in connections:
+        cursor.execute("""
+            INSERT OR REPLACE INTO connections (
+                connection_id, pppoe_username, node_id
+            ) VALUES (?, ?, ?)
+        """, (
+            conn_data["connection_id"],
+            conn_data["pppoe_username"],
+            conn_data["node_id"]
+        ))
+
+    # Paso 4: Match PPPoE → node_id + connection_id en subscribers
+    cursor.execute("""
+        UPDATE subscribers
+        SET node_id = (
+            SELECT node_id FROM connections
+            WHERE connections.pppoe_username = subscribers.pppoe_username
+        ),
+        connection_id = (
+            SELECT connection_id FROM connections
+            WHERE connections.pppoe_username = subscribers.pppoe_username
+        )
+    """)
+
+    conn.commit()
+    conn.close()
