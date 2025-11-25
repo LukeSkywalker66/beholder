@@ -13,6 +13,11 @@ MK_USER = os.getenv("MK_USER")
 MK_PASS = os.getenv("MK_PASS")
 MK_PORT = int(os.getenv("MK_PORT", 8799))
 GENIEACS_URL = os.getenv("GENIEACS_URL")
+ISPCUBE_BASEURL=os.getenv("ISPCUBE_BASEURL")
+ISPCUBE_APIKEY=os.getenv("ISPCUBE_APIKEY")
+ISPCUBE_USER=os.getenv("ISPCUBE_USER")
+ISPCUBE_PASSWORD=os.getenv("ISPCUBE_PASSWORD")
+ISPCUBE_CLIENTID=os.getenv("ISPCUBE_CLIENTID")
 
 DB_PATH = os.path.abspath(os.getenv("DB_PATH", "data/diag.db"))
 

@@ -12,7 +12,7 @@
       "name": "Debug sync",
       "type": "python",
       "request": "launch",
-      "module": "db.sync",
+      "module": "app.jobs.sync",
       "cwd": "${workspaceFolder}"
     }
   ]

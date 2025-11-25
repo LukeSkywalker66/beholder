@@ -1,6 +1,6 @@
 from app.clients import smartolt, ispcube
 from app import config
-from app.db.sqlite import insert_subscriber, insert_node, insert_connection, match_connections
+from app.db.sqlite import insert_subscriber, insert_node, insert_connection, match_connections, insert_plan
 
 def sync_onus():
     onus = smartolt.get_all_onus()
@@ -26,11 +26,16 @@ def sync_nodes():
         insert_node(node["id"], node["name"], node["ip"])
     config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
 
+def sync_plans():
+    planes = ispcube.obtener_planes()
+    for p in planes:
+        insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
+    config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
 
 def sync_connections():
     conexiones = ispcube.obtener_todas_conexiones()
     for c in conexiones:
-        insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"])
+        insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"])
     config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
 
 def nightly_sync():

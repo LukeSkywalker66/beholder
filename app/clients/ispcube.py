@@ -111,7 +111,7 @@ def obtener_conexion_por_pppoe(pppoe_user):
 def obtener_todas_conexiones():
     """
     Devuelve lista de conexiones con datos básicos:
-    user (PPPoE), customer_id, id (conn_id), node_id.
+    user (PPPoE), customer_id, id (conn_id), node_id, plan_id.
     """
     url = f"{ISPCUBE_BASEURL}/connections/connections_list"
     resp = _request("GET", url)
@@ -127,8 +127,28 @@ def obtener_todas_conexiones():
                 "user": c.get("user"),
                 "customer_id": c.get("customer_id"),
                 "id": c.get("id"),
-                "node_id": c.get("node_id")
+                "node_id": c.get("node_id"),
+                "plan_id": c.get("plan_id")
             })
     return resultado
 
-        
+def obtener_planes():
+    """
+    Devuelve lista de planes con id, nombre, velocidad y descripción.
+    """
+    url = f"{ISPCUBE_BASEURL}/plans/plans_list"
+    resp = _request("GET", url)
+    planes = resp.json()
+
+    if not isinstance(planes, list):
+        raise RuntimeError("Respuesta inesperada de ISPCube al listar planes")
+
+    resultado = []
+    for p in planes:
+        resultado.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "speed": p.get("speed"),
+            "comment": p.get("comment")
+        })
+    return resultado

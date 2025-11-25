@@ -25,12 +25,22 @@ def init_db():
         )
     """)
 
-    # Tabla de nodos (ISPCube) name = nombre del nodo (comment en ISPCube)
+    # Tabla de nodos (ISPCube)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS nodes (
             node_id TEXT PRIMARY KEY,
-            name TEXT,
+            name TEXT,          -- nombre del nodo (comment en ISPCube)
             ip_address TEXT
+        )
+    """)
+
+    # Tabla de planes (ISPCube)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS plans (
+            plan_id TEXT PRIMARY KEY,
+            name TEXT,
+            speed TEXT,
+            description TEXT
         )
     """)
 
@@ -40,12 +50,14 @@ def init_db():
             connection_id TEXT PRIMARY KEY,
             pppoe_username TEXT,
             customer_id TEXT,
-            node_id TEXT
+            node_id TEXT,
+            plan_id TEXT
         )
     """)
 
     conn.commit()
     conn.close()
+
 
 def insert_subscriber(unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode):
     conn = sqlite3.connect(config.DB_PATH)   # o beholder.db, según uses
@@ -69,15 +81,26 @@ def insert_node(node_id, name, ip_address):
     conn.commit()
     conn.close()
 
-def insert_connection(connection_id, pppoe_username, customer_id, node_id):
+def insert_plan(plan_id, name, speed, description):
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT OR REPLACE INTO connections (connection_id, pppoe_username, customer_id, node_id)
+        INSERT OR REPLACE INTO plans (plan_id, name, speed, description)
         VALUES (?, ?, ?, ?)
-    """, (connection_id, pppoe_username, customer_id, node_id))
+    """, (plan_id, name, speed, description))
     conn.commit()
     conn.close()
+
+def insert_connection(connection_id, pppoe_username, customer_id, node_id, plan_id):
+    conn = sqlite3.connect(config.DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO connections (connection_id, pppoe_username, customer_id, node_id, plan_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (connection_id, pppoe_username, customer_id, node_id, plan_id))
+    conn.commit()
+    conn.close()
+
 
 def match_connections():
     conn = sqlite3.connect(config.DB_PATH)
