@@ -1,5 +1,5 @@
 import os
-from fastapi import Security, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
 from dotenv import load_dotenv
 
