@@ -44,6 +44,14 @@ class Database:
                 WHERE connections.pppoe_username = subscribers.pppoe_username
             )
         """)
+    
+    def log_sync_status(self, fuente: str, estado: str, detalle: str = None):
+        """Registra el estado de sincronización de una fuente"""
+        self.cursor.execute("""
+            INSERT INTO sync_status (fuente, ultima_actualizacion, estado, detalle)
+            VALUES (?, ?, ?, ?)
+        """, (fuente, datetime.now(), estado, detalle))
+        self.commit()
 
     def get_diagnosis(self, pppoe_user: str) -> dict:
         query = """
@@ -163,6 +171,22 @@ def init_db():
             direccion TEXT
         )
     """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sync_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fuente TEXT NOT NULL,                 -- 'smartolt', 'ispcube', 'mikrotik', etc.
+        ultima_actualizacion TEXT NOT NULL,   -- ISO 8601 (ej. '2025-11-26T19:45:00')
+        estado TEXT NOT NULL,                 -- 'ok', 'empty', 'error'
+        detalle TEXT
+    )
+    """)
+
+    # Índice útil para consultas por fuente y fecha
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_sync_status_fuente_fecha
+    ON sync_status (fuente, ultima_actualizacion)
+    """)
+
 
     conn.commit()
     conn.close()
