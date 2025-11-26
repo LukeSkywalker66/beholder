@@ -128,7 +128,8 @@ def obtener_todas_conexiones():
                 "customer_id": c.get("customer_id"),
                 "id": c.get("id"),
                 "node_id": c.get("node_id"),
-                "plan_id": c.get("plan_id")
+                "plan_id": c.get("plan_id"),
+                "direccion": c.get("address")
             })
     return resultado
 

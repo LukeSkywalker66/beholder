@@ -1,6 +1,18 @@
+# Requisitos del proyecto Beholder
+RouterOS-api==0.21.0
+
+# Framework web
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-python-dotenv==1.0.1
-requests==2.32.3
-loguru==0.7.2
+
+# Base de datos
+sqlite3-binary==0.0.1   # opcional, sqlite ya viene con Python estándar
+
+# Cliente Mikrotik
 RouterOS-api==0.21.0
+
+# Logging y utilidades
+python-dotenv==1.0.1    # para manejar variables de entorno (.env)
+loguru==0.7.2
+# Dependencias comunes
+requests==2.32.3        # para llamadas HTTP (SmartOLT, ISPCube)

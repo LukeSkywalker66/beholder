@@ -34,7 +34,7 @@ def sync_plans(db):
 def sync_connections(db):
     conexiones = ispcube.obtener_todas_conexiones()
     for c in conexiones:
-        db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"])
+        db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"], c.get("direccion"))
     config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
 
 def nightly_sync():

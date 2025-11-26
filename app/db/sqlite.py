@@ -26,11 +26,11 @@ class Database:
             VALUES (?, ?, ?, ?)
         """, (plan_id, name, speed, description))
 
-    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id):
+    def insert_connection(self, connection_id, pppoe_username, customer_id, node_id, plan_id, direccion=None):
         self.cursor.execute("""
-            INSERT OR REPLACE INTO connections (connection_id, pppoe_username, customer_id, node_id, plan_id)
-            VALUES (?, ?, ?, ?, ?)
-        """, (connection_id, pppoe_username, customer_id, node_id, plan_id))
+            INSERT OR REPLACE INTO connections (connection_id, pppoe_username, customer_id, node_id, plan_id, direccion)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (connection_id, pppoe_username, customer_id, node_id, plan_id, direccion))
 
     def match_connections(self):
         self.cursor.execute("""
@@ -47,13 +47,14 @@ class Database:
 
     def get_diagnosis(self, pppoe_user: str) -> dict:
         query = """
-        SELECT s.pppoe_username,
-               s.sn AS onu_sn,
-               s.olt_name,
-               n.name AS nodo,
-               p.name AS plan,
-               p.speed,
-               c.connection_id
+        SELECT s.unique_external_id,
+                s.pppoe_username,
+                s.sn AS onu_sn,
+                s.olt_name AS OLT,
+                n.name AS nodo_nombre,
+                n.ip_address AS nodo_ip,
+                p.name AS plan,
+                c.address AS direccion
         FROM subscribers s
         LEFT JOIN connections c ON s.connection_id = c.connection_id
         LEFT JOIN nodes n ON c.node_id = n.node_id
@@ -67,14 +68,14 @@ class Database:
             return {"error": f"Cliente {pppoe_user} no encontrado"}
 
         diagnosis = {
-            "pppoe_username": row[0],
-            "onu_sn": row[1],
-            "olt_name": row[2],
-            "nodo": row[3],
-            "plan": row[4],
-            "speed": row[5],
-            "connection_id": row[6],
-            "pppoe_active": False  # Mikrotik de pruebas → siempre false
+            "unique_external_id": row[0],
+            "pppoe_username": row[1],
+            "onu_sn": row[2],
+            "OLT": row[3],
+            "nodo_nombre": row[4],
+            "nodo_ip": row[5],
+            "plan": row[6],
+            "direccion": row[7]
         }
         return diagnosis
     
@@ -136,7 +137,8 @@ def init_db():
             pppoe_username TEXT,
             customer_id TEXT,
             node_id TEXT,
-            plan_id TEXT
+            plan_id TEXT,
+            direccion TEXT
         )
     """)
 
