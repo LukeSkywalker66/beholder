@@ -93,16 +93,24 @@ def rollback_secret(origen_ip, destino_ip, pppoe_user):
     borrar_secret(destino_ip, pppoe_user)
     return True
 
-def validar_pppoe(router_ip, pppoe_user):
-    
-    router_ip = MIKROTIK_IP #borrar para producción
-
+def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
     pool, api = _connect(router_ip)
     activos = api.get_resource('/ppp/active')
     result = activos.get(name=pppoe_user)
     pool.disconnect()
+
     if result:
         logging.info(f"PPP user {pppoe_user} activo en {router_ip}")
-        return True
-    logging.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
-    return False
+        return {"active": True}
+    else:
+        logging.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
+        # Podés complementar con info del secret si querés
+        try:
+            secret = obtener_secret(router_ip, pppoe_user)
+            return {
+                "active": False,
+                "last_disconnect": secret.get("last-disconnect-time"),
+                "reason": secret.get("last-disconnect-reason")
+            }
+        except Exception:
+            return {"active": False}

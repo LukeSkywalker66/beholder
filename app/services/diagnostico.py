@@ -1,24 +1,23 @@
-from app.db.sqlite import Database
+﻿from app.db.sqlite import Database
 from app.clients import mikrotik, smartolt, ispcube
 
-def consultar_diagnostico(pppoe_user):
+def consultar_diagnostico(pppoe_user: str) -> dict:
     db = Database()
     try:
-        base = db.get_diagnosis_base(pppoe_user)
-        if not base:
-            return {"error": f"Cliente {pppoe_user} no encontrado"}
-        
+        base = db.get_diagnosis(pppoe_user)
+        if "error" in base:
+            return base
+
         diagnosis = base.copy()
 
-        # Mikrotik
-        active = mikrotik.get_active_connection(pppoe_user)
-        if active:
+        # Mikrotik → validación PPPoE usando nodo_ip
+        pppoe_info = mikrotik.validar_pppoe(pppoe_user, base["nodo_ip"])
+        if pppoe_info.get("active"):
             diagnosis["pppoe_active"] = True
         else:
             diagnosis["pppoe_active"] = False
-            secret_info = mikrotik.get_secret_info(pppoe_user)
-            diagnosis["last_disconnect"] = secret_info.get("last_disconnect")
-            diagnosis["disconnect_reason"] = secret_info.get("reason")
+            diagnosis["last_disconnect"] = pppoe_info.get("last_disconnect")
+            diagnosis["disconnect_reason"] = pppoe_info.get("reason")
 
         # SmartOLT
         diagnosis["onu_status"] = smartolt.get_onu_status(base["unique_external_id"])
@@ -28,7 +27,7 @@ def consultar_diagnostico(pppoe_user):
         conn_info = ispcube.obtener_conexion_por_pppoe(pppoe_user)
         diagnosis["ispcube_status"] = conn_info.get("status")
 
-        plan = ispcube.obtener_plan(base["plan_id"])
+        plan = ispcube.obtener_plan(conn_info.get("plan_id"))
         diagnosis["plan"] = plan.get("name")
         diagnosis["speed"] = plan.get("speed")
 
