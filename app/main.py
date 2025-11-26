@@ -1,8 +1,11 @@
-from fastapi import FastAPI, Request
+
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from app import config
 from app.services.diagnostico import consultar_diagnostico
 from app.security import get_api_key
+from fastapi import FastAPI, Depends
+
 
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
