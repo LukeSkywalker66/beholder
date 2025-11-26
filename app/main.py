@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app import config
 from app.services.diagnostico import consultar_diagnostico
+from app.security import get_api_key
+
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
 
@@ -28,6 +30,5 @@ def diagnosis(pppoe_user: str):
     return row  # devuelve el dict completo con claves semánticas
 
 @app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
+def read_root(api_key: str = Depends(get_api_key)):
+    return {"status": "ok", "service": "Beholder API"}
