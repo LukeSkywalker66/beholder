@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app import config
-from db.sqlite import init_db, get_subscriber_by_pppoe
+from app.db.sqlite import init_db, get_subscriber_by_pppoe
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
 

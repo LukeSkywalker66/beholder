@@ -78,7 +78,29 @@ class Database:
         }
         return diagnosis
     
-    
+    def get_diagnosis_base(self, pppoe_user: str) -> dict:
+        query = """
+        SELECT s.unique_external_id, s.pppoe_username, s.sn, s.olt_name,
+               c.connection_id, c.node_id, c.plan_id
+        FROM subscribers s
+        LEFT JOIN connections c ON s.connection_id = c.connection_id
+        WHERE s.pppoe_username = ?
+        """
+        self.cursor.execute(query, (pppoe_user,))
+        row = self.cursor.fetchone()
+        if not row:
+            return None
+
+        return {
+            "unique_external_id": row[0],
+            "pppoe_username": row[1],
+            "onu_sn": row[2],
+            "olt_name": row[3],
+            "connection_id": row[4],
+            "node_id": row[5],
+            "plan_id": row[6]
+        }
+
 
 
     def commit(self):
