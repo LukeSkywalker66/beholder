@@ -6,7 +6,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.0
 
 # Base de datos
-sqlite3-binary==0.0.1   # opcional, sqlite ya viene con Python estándar
+
 
 # Cliente Mikrotik
 RouterOS-api==0.21.0
