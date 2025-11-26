@@ -26,3 +26,8 @@ def diagnosis(pppoe_user: str):
     if "error" in row:
         return JSONResponse(status_code=404, content={"detail": row["error"]})
     return row  # devuelve el dict completo con claves semánticas
+
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
