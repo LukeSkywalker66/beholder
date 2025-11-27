@@ -107,6 +107,7 @@ def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
     else:
         logger.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
         try:
+            #modificar aca
             secret = obtener_secret(router_ip, pppoe_user)
             return {"active": False, "secret": secret}
         except Exception:
