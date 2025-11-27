@@ -5,7 +5,7 @@ from app import config
 from app.services.diagnostico import consultar_diagnostico
 from app.security import get_api_key
 from fastapi import FastAPI, Depends
-
+from app.config import logger
 
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
@@ -27,10 +27,20 @@ def health():
 
 @app.get("/diagnosis/{pppoe_user}")
 def diagnosis(pppoe_user: str):
-    row = consultar_diagnostico(pppoe_user)
+    try:
+        row = consultar_diagnostico(pppoe_user)
+    except Exception as e:
+        logger.exception(f"Error en diagnóstico de {pppoe_user}")
+        raise HTTPException(status_code=500, detail=str(e))
     if "error" in row:
-        return JSONResponse(status_code=404, content={"detail": row["error"]})
-    return row  # devuelve el dict completo con claves semánticas
+        raise HTTPException(status_code=404, detail=row["error"])
+    return row
+
+    
+    # row = consultar_diagnostico(pppoe_user)
+    # if "error" in row:
+    #     return JSONResponse(status_code=404, content={"detail": row["error"]})
+    # return row  # devuelve el dict completo con claves semánticas
 
 @app.get("/")
 def read_root(api_key: str = Depends(get_api_key)):

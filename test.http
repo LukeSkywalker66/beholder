@@ -2,8 +2,11 @@
 GET http://127.0.0.1:8088/health
 
 ### Prueba con API key (debe funcionar)
-GET http://127.0.0.1:8088/health
-x-api-key: beholder-2025-secret
+GET http://127.0.0.1:8500/health
+x-api-key: supersecreta123
 ### Buscar suscriptor inexistente (debe dar 404)
 GET http://127.0.0.1:8088/subscribers/testuser
 x-api-key: beholder-2025-secret
+### Buscar suscriptor de prueba (debe dar 200)
+GET http://127.0.0.1:8500/diagnosis/usuarioprueba
+x-api-key: supersecreta123

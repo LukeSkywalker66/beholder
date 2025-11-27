@@ -31,7 +31,7 @@ def sync_nodes(db):
     for n in nodes:
         db.insert_node(n["id"], n["name"], n["ip"])
     config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
-
+    db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizadas")
 def sync_plans(db):
     planes = ispcube.obtener_planes()
     if planes:
@@ -39,7 +39,7 @@ def sync_plans(db):
     for p in planes:
         db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
     config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
-
+    db.log_sync_status("ispcube", "ok", f"{len(planes)} planes sincronizadas")
 def sync_connections(db):
     conexiones = ispcube.obtener_todas_conexiones()
     if conexiones:
@@ -47,7 +47,7 @@ def sync_connections(db):
     for c in conexiones:
         db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"], c.get("direccion"))
     config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
-
+    db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conecciones sincronizadas")
 def nightly_sync():
     init_db()  # asegura el esquema antes de cualquier operación
     db = Database()

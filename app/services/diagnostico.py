@@ -1,5 +1,7 @@
 ﻿from app.db.sqlite import Database
 from app.clients import mikrotik, smartolt, ispcube
+from app.config import logger
+
 
 def consultar_diagnostico(pppoe_user: str) -> dict:
     db = Database()
@@ -11,7 +13,7 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
         diagnosis = base.copy()
 
         # Mikrotik → validación PPPoE usando nodo_ip
-        pppoe_info = mikrotik.validar_pppoe(pppoe_user, base["nodo_ip"])
+        pppoe_info = mikrotik.validar_pppoe(base["nodo_ip"], pppoe_user)
         if pppoe_info.get("active"):
             diagnosis["pppoe_active"] = True
         else:

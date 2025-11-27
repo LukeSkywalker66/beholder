@@ -1,5 +1,5 @@
-import logging
 import time
+from app.config import logger
 
 from routeros_api import RouterOsApiPool
 
@@ -13,7 +13,7 @@ MIKROTIK_IP   = config.MK_HOST
 
 #Nota para producción: borrar =MIKROTIK_IP y pasar IP como parámetro en cada función
 
-def _connect(router_ip=MIKROTIK_IP, username=MIKROTIK_USER, password=MIKROTIK_PASS, port=MIKROTIK_PORT):
+def _connect(router_ip, username=MIKROTIK_USER, password=MIKROTIK_PASS, port=MIKROTIK_PORT):
     pool = RouterOsApiPool(
         router_ip,
         username=username,
@@ -30,7 +30,7 @@ def obtener_secret(router_ip, pppoe_user): #MIKROTIK_IP, router_ip
     result = secrets.get(name=pppoe_user)
     pool.disconnect()
     if not result:
-        raise RuntimeError(f"Secret {pppoe_user} no encontrado en {router_ip}")
+        logger.Error(f"Secret {pppoe_user} no encontrado en {router_ip}")
     return result[0]
 
 def crear_secret(router_ip, datos_secret):
@@ -43,7 +43,7 @@ def crear_secret(router_ip, datos_secret):
         service=datos_secret.get('service', 'pppoe')
     )
     pool.disconnect()
-    logging.info(f"Secret {datos_secret['name']} creado en {router_ip}")
+    logger.info(f"Secret {datos_secret['name']} creado en {router_ip}")
 
 def borrar_secret(router_ip, pppoe_user):
     pool, api = _connect(router_ip)
@@ -55,7 +55,7 @@ def borrar_secret(router_ip, pppoe_user):
 
         #id=result[0]['.id']
         secrets.remove(id=secret_id)
-        logging.info(f"Secret {pppoe_user} eliminado de {router_ip}")
+        logger.info(f"Secret {pppoe_user} eliminado de {router_ip}")
     pool.disconnect()
 
 def migrar_secret(origen_ip, destino_ip, pppoe_user):
@@ -68,18 +68,18 @@ def migrar_secret(origen_ip, destino_ip, pppoe_user):
     crear_secret(destino_ip, datos)
     # Validación inicial
     if not validar_pppoe(destino_ip, pppoe_user):
-        logging.info(f"Esperando 60s para revalidar {pppoe_user} en {destino_ip}...")
+        logger.info(f"Esperando 60s para revalidar {pppoe_user} en {destino_ip}...")
         time.sleep(60)
 
         # Segundo intento
         if not validar_pppoe(destino_ip, pppoe_user):
-            logging.error(f"❌ {pppoe_user} no levantó en {destino_ip}, rollback.")
+            logger.error(f"❌ {pppoe_user} no levantó en {destino_ip}, rollback.")
             #borrar_secret(destino_ip, pppoe_user)
             return False
 
     # Si llegó acá, está online → borrar en origen
     borrar_secret(origen_ip, pppoe_user)
-    logging.info(f"✅ {pppoe_user} migrado de {origen_ip} a {destino_ip}")
+    logger.info(f"✅ {pppoe_user} migrado de {origen_ip} a {destino_ip}")
     return True
 
 
@@ -94,23 +94,21 @@ def rollback_secret(origen_ip, destino_ip, pppoe_user):
     return True
 
 def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
-    pool, api = _connect(router_ip)
+    
+    #pool, api = _connect(router_ip)
+    pool, api = _connect(MIKROTIK_IP) #borrar para producción
     activos = api.get_resource('/ppp/active')
     result = activos.get(name=pppoe_user)
     pool.disconnect()
 
     if result:
-        logging.info(f"PPP user {pppoe_user} activo en {router_ip}")
-        return {"active": True}
+        logger.info(f"PPP user {pppoe_user} activo en {router_ip}")
+        return {"active": True, "data": result}
     else:
-        logging.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
-        # Podés complementar con info del secret si querés
+        logger.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
         try:
             secret = obtener_secret(router_ip, pppoe_user)
-            return {
-                "active": False,
-                "last_disconnect": secret.get("last-disconnect-time"),
-                "reason": secret.get("last-disconnect-reason")
-            }
+            return {"active": False, "secret": secret}
         except Exception:
             return {"active": False}
+        # Si no está activo y no se encuentra el secret, no se puede obtener más info

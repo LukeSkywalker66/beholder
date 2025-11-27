@@ -1,6 +1,8 @@
 # app/db/sqlite.py
 import sqlite3
 from app import config
+from datetime import datetime
+
 
 class Database:
     def __init__(self, path=config.DB_PATH):
@@ -62,7 +64,7 @@ class Database:
                 n.name AS nodo_nombre,
                 n.ip_address AS nodo_ip,
                 p.name AS plan,
-                c.address AS direccion
+                c.direccion AS direccion
         FROM subscribers s
         LEFT JOIN connections c ON s.connection_id = c.connection_id
         LEFT JOIN nodes n ON c.node_id = n.node_id

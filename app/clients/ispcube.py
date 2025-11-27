@@ -1,6 +1,7 @@
-import logging
+
 import requests
 from app import config
+from app.config import logger
 
 ISPCUBE_BASEURL = config.ISPCUBE_BASEURL
 ISPCUBE_APIKEY = config.ISPCUBE_APIKEY
@@ -55,7 +56,7 @@ def _request(method, url, **kwargs):
     resp = requests.request(method, url, headers=headers, **kwargs)
     if resp.status_code == 401:
         # Token expirado → renovar y reintentar
-        logging.warning("Token expirado, renovando...")
+        logger.warning("Token expirado, renovando...")
         token = _get_token(force_refresh=True)
         headers.update(_headers(token))
         resp = requests.request(method, url, headers=headers, **kwargs)
@@ -87,7 +88,7 @@ def obtener_conexion(pppoe):
     if data:
         conn = data[0]
         return conn["id"], conn.get("node_id")
-    raise RuntimeError(f"No se encontró conexión en ISPCube para {pppoe}")
+    logger.Error(f"No se encontró conexión en ISPCube para {pppoe}")
 
 def obtener_conexion_por_pppoe(pppoe_user):
     """
@@ -99,13 +100,13 @@ def obtener_conexion_por_pppoe(pppoe_user):
 
     conexiones = cliente.get("connections", [])
     if not conexiones:
-        raise RuntimeError(f"No se encontraron conexiones para PPPoE {pppoe_user}")
+        logger.Error(f"No se encontraron conexiones para PPPoE {pppoe_user}")
 
     for conn in conexiones:
         if conn.get("conntype") == "pppoe" and conn.get("user") == pppoe_user:
             return conn["id"], conn.get("node_id")
 
-    raise RuntimeError(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
+    logger.Error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
 
 
 def obtener_todas_conexiones():
@@ -118,7 +119,7 @@ def obtener_todas_conexiones():
     conexiones = resp.json()
 
     if not isinstance(conexiones, list):
-        raise RuntimeError("Respuesta inesperada de ISPCube al listar conexiones")
+        logger.Error("Respuesta inesperada de ISPCube al listar conexiones")
 
     resultado = []
     for c in conexiones:
@@ -142,7 +143,7 @@ def obtener_planes():
     planes = resp.json()
 
     if not isinstance(planes, list):
-        raise RuntimeError("Respuesta inesperada de ISPCube al listar planes")
+        logger.Error("Respuesta inesperada de ISPCube al listar planes")
 
     resultado = []
     for p in planes:

@@ -1,5 +1,6 @@
 import requests
 from app import config
+from app.config import logger
 
 SMARTOLT_BASEURL = config.SMARTOLT_BASEURL
 SMARTOLT_TOKEN = config.SMARTOLT_TOKEN
@@ -17,5 +18,5 @@ def get_all_onus():
     resp = _request("GET", "/onu/get_all_onus_details")
     data = resp.json()
     if not data.get("status"):
-        raise RuntimeError("SmartOLT no devolvió estado OK")
+        logger.Error("SmartOLT no devolvió estado OK")
     return data.get("onus", [])
