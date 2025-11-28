@@ -16,8 +16,8 @@ MIKROTIK_IP   = config.MK_HOST
 def _connect(router_ip, username=MIKROTIK_USER, password=MIKROTIK_PASS, port=MIKROTIK_PORT):
     pool = RouterOsApiPool(
         router_ip,
-        username=username,
-        password=password,
+        username=username, # type: ignore
+        password=password, # type: ignore
         port=port,              
         plaintext_login=True
     )
@@ -30,7 +30,7 @@ def obtener_secret(router_ip, pppoe_user): #MIKROTIK_IP, router_ip
     result = secrets.get(name=pppoe_user)
     pool.disconnect()
     if not result:
-        logger.Error(f"Secret {pppoe_user} no encontrado en {router_ip}")
+        logger.error(f"Secret {pppoe_user} no encontrado en {router_ip}")
     return result[0]
 
 def crear_secret(router_ip, datos_secret):
@@ -59,9 +59,7 @@ def borrar_secret(router_ip, pppoe_user):
     pool.disconnect()
 
 def migrar_secret(origen_ip, destino_ip, pppoe_user):
-    origen_ip = MIKROTIK_IP #borrar para producción
-    destino_ip = MIKROTIK_IP #borrar para producción
-
+   
     datos = obtener_secret(origen_ip, pppoe_user)
 
 
@@ -95,8 +93,8 @@ def rollback_secret(origen_ip, destino_ip, pppoe_user):
 
 def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
     
-    #pool, api = _connect(router_ip)
-    pool, api = _connect(MIKROTIK_IP) #borrar para producción
+    pool, api = _connect(router_ip)
+    #pool, api = _connect(MIKROTIK_IP) #borrar para producción
     activos = api.get_resource('/ppp/active')
     result = activos.get(name=pppoe_user)
     pool.disconnect()

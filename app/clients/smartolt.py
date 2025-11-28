@@ -18,5 +18,21 @@ def get_all_onus():
     resp = _request("GET", "/onu/get_all_onus_details")
     data = resp.json()
     if not data.get("status"):
-        logger.Error("SmartOLT no devolvió estado OK")
+        logger.error("SmartOLT no devolvió estado OK")
     return data.get("onus", [])
+
+def get_onu_status(onu_id):
+    resp = _request("GET", f"/onu/get_onu_status/{onu_id}")
+    data = resp.json()
+    if not data.get("status"):
+        logger.error(f"SmartOLT no devolvió estado OK para ONU {onu_id}")
+    # Algunas APIs devuelven 'onu' o 'status' con detalles; retornamos el payload útil
+    return data
+
+def get_onu_signals(onu_id):
+    resp = _request("GET", f"/onu/get_onu_signals/{onu_id}")
+    data = resp.json()
+    if not data.get("status"):
+        logger.error(f"SmartOLT no devolvió estado OK para ONU {onu_id}")
+    # Algunas APIs devuelven 'onu' o 'status' con detalles; retornamos el payload útil
+    return data

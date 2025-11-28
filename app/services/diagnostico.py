@@ -23,15 +23,15 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
 
         # SmartOLT
         diagnosis["onu_status"] = smartolt.get_onu_status(base["unique_external_id"])
-        diagnosis["onu_signal"] = smartolt.get_onu_signal(base["unique_external_id"])
+        diagnosis["onu_signal"] = smartolt.get_onu_signals(base["unique_external_id"])
 
         # ISPCube
-        conn_info = ispcube.obtener_conexion_por_pppoe(pppoe_user)
-        diagnosis["ispcube_status"] = conn_info.get("status")
+        # conn_info = ispcube.obtener_conexion_por_pppoe(pppoe_user)
+        # diagnosis["ispcube_status"] = conn_info.get("status")
 
-        plan = ispcube.obtener_plan(conn_info.get("plan_id"))
-        diagnosis["plan"] = plan.get("name")
-        diagnosis["speed"] = plan.get("speed")
+        # plan = ispcube.obtener_plan(conn_info.get("plan_id"))
+        # diagnosis["plan"] = plan.get("name")
+        # diagnosis["speed"] = plan.get("speed")
 
         return diagnosis
     finally:
