@@ -101,7 +101,7 @@ def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
 
     if result:
         logger.info(f"PPP user {pppoe_user} activo en {router_ip}")
-        return {"active": True, "data": result}
+        return {"active": True, **result[0]}
     else:
         logger.warning(f"PPP user {pppoe_user} NO activo en {router_ip}")
         try:
@@ -111,3 +111,18 @@ def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
         except Exception:
             return {"active": False}
         # Si no está activo y no se encuentra el secret, no se puede obtener más info
+# def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
+#     try:
+#         pool, api = _connect(router_ip)
+#         activos = api.get_resource('/ppp/active')
+#         result = activos.get(name=pppoe_user)
+#         pool.disconnect()
+
+#         if result:
+#             # Tomamos el primer dict y lo expandimos directamente
+#             return {"active": True, **result[0]}
+#         else:
+#             return {"active": False}
+#     except Exception as e:
+#         logger.error(f"Error al validar PPPoE en {router_ip}: {e}")
+#         return {"active": False, "error": str(e)}

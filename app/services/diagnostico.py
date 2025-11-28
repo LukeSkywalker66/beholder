@@ -14,16 +14,17 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
 
         # Mikrotik → validación PPPoE usando nodo_ip
         pppoe_info = mikrotik.validar_pppoe(base["nodo_ip"], pppoe_user)
-        if pppoe_info.get("active"):
-            diagnosis["pppoe_active"] = True
-        else:
-            diagnosis["pppoe_active"] = False
-            diagnosis["last_disconnect"] = pppoe_info.get("last_disconnect")
-            diagnosis["disconnect_reason"] = pppoe_info.get("reason")
+        diagnosis["mikrotik"] = pppoe_info
+        # if pppoe_info.get("active"):
+        #     diagnosis["pppoe_active"] = True
+        # else:
+        #     diagnosis["pppoe_active"] = False
+        #     diagnosis["last_disconnect"] = pppoe_info.get("last_disconnect")
+        #     diagnosis["disconnect_reason"] = pppoe_info.get("reason")
 
         # SmartOLT
-        diagnosis["onu_status"] = smartolt.get_onu_status(base["unique_external_id"])
-        diagnosis["onu_signal"] = smartolt.get_onu_signals(base["unique_external_id"])
+        diagnosis["onu_status_smrt"] = smartolt.get_onu_status(base["unique_external_id"])
+        diagnosis["onu_signal_smrt"] = smartolt.get_onu_signals(base["unique_external_id"])
 
         # ISPCube
         # conn_info = ispcube.obtener_conexion_por_pppoe(pppoe_user)

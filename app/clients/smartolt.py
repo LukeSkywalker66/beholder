@@ -30,7 +30,7 @@ def get_onu_status(onu_id):
     return data
 
 def get_onu_signals(onu_id):
-    resp = _request("GET", f"/onu/get_onu_signals/{onu_id}")
+    resp = _request("GET", f"/onu/get_onu_signal/{onu_id}")
     data = resp.json()
     if not data.get("status"):
         logger.error(f"SmartOLT no devolvió estado OK para ONU {onu_id}")
