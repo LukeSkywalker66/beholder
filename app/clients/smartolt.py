@@ -1,10 +1,12 @@
 import requests
 from app import config
 from app.config import logger
+from app.utils.safe_call import safe_call 
 
 SMARTOLT_BASEURL = config.SMARTOLT_BASEURL
 SMARTOLT_TOKEN = config.SMARTOLT_TOKEN
 
+@safe_call
 def _request(method, endpoint, **kwargs):
     try:
         headers = kwargs.pop("headers", {})
@@ -16,7 +18,8 @@ def _request(method, endpoint, **kwargs):
     except Exception as e:
         logger.error(f"Error en request API smartOLT: {e}")
         return {"estado": "error", "API smartOLT detalle": str(e)}
-    
+
+@safe_call
 def get_all_onus():
     try:
         """Devuelve el lote completo de ONUs desde SmartOLT."""
@@ -29,6 +32,7 @@ def get_all_onus():
         logger.error(f"Error al obtener listado de onus: {e}")
         return {"estado": "error", "API smartOLT detalle": str(e)}
     
+@safe_call
 def get_onu_status(onu_id):
     try:
         resp = _request("GET", f"/onu/get_onu_status/{onu_id}")
@@ -39,7 +43,8 @@ def get_onu_status(onu_id):
     except Exception as e:
         logger.error(f"Error al consultar estado ONU {onu_id}: {e}")
         return {"estado": "error", "API smartOLT, detalle": str(e)}
-    
+
+@safe_call
 def get_onu_signals(onu_id):
     try:
         resp = _request("GET", f"/onu/get_onu_signal/{onu_id}")

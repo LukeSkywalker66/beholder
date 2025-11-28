@@ -2,6 +2,7 @@
 import requests
 from app import config
 from app.config import logger
+from app.utils.safe_call import safe_call
 
 ISPCUBE_BASEURL = config.ISPCUBE_BASEURL
 ISPCUBE_APIKEY = config.ISPCUBE_APIKEY
@@ -12,6 +13,7 @@ ISPCUBE_CLIENTID = config.ISPCUBE_CLIENTID
 # Cache interno del token
 _token_cache = None
 
+@safe_call
 def _obtener_token():
     """Solicita un nuevo token a ISPCube."""
     url = f"{ISPCUBE_BASEURL}/sanctum/token"
@@ -27,6 +29,7 @@ def _obtener_token():
     resp.raise_for_status()
     return resp.json()["token"]
 
+@safe_call
 def _get_token(force_refresh=False):
     """Devuelve un token válido, renovando si es necesario."""
     global _token_cache
@@ -45,6 +48,7 @@ def _headers(token=None):
         "username": ISPCUBE_USER
     }
 
+@safe_call
 def _request(method, url, **kwargs):
     """
     Wrapper de requests que maneja expiración de token.
@@ -64,7 +68,7 @@ def _request(method, url, **kwargs):
     return resp
 
 # ------------------ Funciones públicas ------------------
-
+@safe_call
 def obtener_nodos():
     """Devuelve lista de nodos con id, name, ip."""
     url = f"{ISPCUBE_BASEURL}/nodes/nodes_list"
@@ -80,6 +84,7 @@ def obtener_nodos():
         })
     return nodos
 
+@safe_call
 def obtener_conexion(pppoe):
     """Busca conexión por PPPoE y devuelve (conn_id, nodo_actual)."""
     url = f"{ISPCUBE_BASEURL}/connections?pppoe={pppoe}"
@@ -90,6 +95,7 @@ def obtener_conexion(pppoe):
         return conn["id"], conn.get("node_id")
     logger.Error(f"No se encontró conexión en ISPCube para {pppoe}")
 
+@safe_call
 def obtener_conexion_por_pppoe(pppoe_user):
     """
     Busca cliente por PPPoE y devuelve (conn_id, nodo_actual).
@@ -108,7 +114,7 @@ def obtener_conexion_por_pppoe(pppoe_user):
 
     logger.Error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
 
-
+@safe_call
 def obtener_todas_conexiones():
     """
     Devuelve lista de conexiones con datos básicos:
@@ -134,6 +140,7 @@ def obtener_todas_conexiones():
             })
     return resultado
 
+@safe_call
 def obtener_planes():
     """
     Devuelve lista de planes con id, nombre, velocidad y descripción.

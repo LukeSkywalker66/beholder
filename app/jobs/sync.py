@@ -1,7 +1,9 @@
 from app.db.sqlite import Database, init_db
 from app.clients import smartolt, ispcube
 from app import config
+from app.utils.safe_call import safe_call
 
+@safe_call
 def sync_onus(db):
     onus = smartolt.get_all_onus()
     if onus:
@@ -24,6 +26,8 @@ def sync_onus(db):
     else:
         db.log_sync_status("smartolt", "empty", "SmartOLT no devolvió datos, se mantienen registros anteriores")
         config.logger.info(f"[SYNC] no se pudo sincronizar ONUs.")
+
+@safe_call
 def sync_nodes(db):
     nodes = ispcube.obtener_nodos()
     if nodes:
@@ -32,6 +36,8 @@ def sync_nodes(db):
         db.insert_node(n["id"], n["name"], n["ip"])
     config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
     db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizadas")
+
+@safe_call
 def sync_plans(db):
     planes = ispcube.obtener_planes()
     if planes:
@@ -40,6 +46,8 @@ def sync_plans(db):
         db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
     config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
     db.log_sync_status("ispcube", "ok", f"{len(planes)} planes sincronizadas")
+
+@safe_call
 def sync_connections(db):
     conexiones = ispcube.obtener_todas_conexiones()
     if conexiones:
@@ -48,6 +56,8 @@ def sync_connections(db):
         db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"], c.get("direccion"))
     config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
     db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conecciones sincronizadas")
+
+@safe_call
 def nightly_sync():
     init_db()  # asegura el esquema antes de cualquier operación
     db = Database()
@@ -61,6 +71,7 @@ def nightly_sync():
         config.logger.info("[SYNC] Base actualizada y relaciones PPPoE → node_id → connection_id completadas.")
     finally:
         db.close()
+
 if __name__ == "__main__":
     try:
         nightly_sync()

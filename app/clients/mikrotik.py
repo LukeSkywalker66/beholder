@@ -1,8 +1,7 @@
 import time
 from app.config import logger
-
+from app.utils.safe_call import safe_call
 from routeros_api import RouterOsApiPool
-
 from app import config
 
 # Credenciales comunes para todos los Mikrotik
@@ -12,7 +11,7 @@ MIKROTIK_PORT = config.MK_PORT   # 👈 tu puerto personalizado
 MIKROTIK_IP   = config.MK_HOST  
 
 #Nota para producción: borrar =MIKROTIK_IP y pasar IP como parámetro en cada función
-
+@safe_call
 def _connect(router_ip, username=MIKROTIK_USER, password=MIKROTIK_PASS, port=MIKROTIK_PORT):
     try:
         pool = RouterOsApiPool(
@@ -24,9 +23,9 @@ def _connect(router_ip, username=MIKROTIK_USER, password=MIKROTIK_PASS, port=MIK
         )
         return pool, pool.get_api()
     except Exception as e:
-        logger.error(f"Error de conexión al Mikrotik {router_ip}: {e}")
+        logger.error(f"Error de conexión al router {router_ip}: {e}")
         return {"error": str(e)}
-
+@safe_call
 def obtener_secret(router_ip, pppoe_user): #MIKROTIK_IP, router_ip
     try:
         pool, api = _connect(router_ip)
@@ -97,7 +96,7 @@ def obtener_secret(router_ip, pppoe_user): #MIKROTIK_IP, router_ip
 #     crear_secret(origen_ip, datos)
 #     borrar_secret(destino_ip, pppoe_user)
 #     return True
-
+@safe_call
 def validar_pppoe(router_ip: str, pppoe_user: str) -> dict:
     try:
         pool, api = _connect(router_ip)
