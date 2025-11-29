@@ -3,7 +3,7 @@ from app.clients import mikrotik, smartolt, ispcube
 from app.config import logger
 from app.utils.safe_call import safe_call
 
-@safe_call
+
 def consultar_diagnostico(pppoe_user: str) -> dict:
     db = Database()
     try:
