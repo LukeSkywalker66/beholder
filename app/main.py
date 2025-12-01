@@ -6,9 +6,19 @@ from app.services.diagnostico import consultar_diagnostico
 from app.security import get_api_key
 from fastapi import FastAPI, Depends
 from app.config import logger
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # o ["http://localhost:5173"] si querés restringir
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 
 @app.on_event("startup")
 def startup_event():
