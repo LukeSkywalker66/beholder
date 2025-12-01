@@ -55,3 +55,16 @@ def get_onu_signals(onu_id):
     except Exception as e:
         logger.error(f"Error al consultar señales ONU {onu_id}: {e}")
         return {"estado": "error", "API smartOLT, detalle": str(e)}
+    
+def get_attached_vlans(onu_id):
+    """Obtiene las VLANs adjuntas de una ONU por external_id."""
+    #lista el detalle de la onu, para sacar las attached vlans de sus serviceports
+    
+    resp = _request("GET", f"/onu/get_onu_details/{onu_id}")
+    data = resp.json()
+    vlans = []
+    if data.get("status"):
+        serviceports = data["onu_details"].get("service_ports", [])
+        vlans = [sp["vlan"] for sp in serviceports if "vlan" in sp]
+
+    return vlans

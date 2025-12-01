@@ -26,6 +26,7 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
         # SmartOLT
         diagnosis["onu_status_smrt"] = smartolt.get_onu_status(base["unique_external_id"])
         diagnosis["onu_signal_smrt"] = smartolt.get_onu_signals(base["unique_external_id"])
+        diagnosis["onu_vlan"] = smartolt.get_attached_vlans(base["unique_external_id"])
 
         # ISPCube
         # conn_info = ispcube.obtener_conexion_por_pppoe(pppoe_user)

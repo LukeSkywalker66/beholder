@@ -60,6 +60,7 @@ class Database:
         SELECT s.unique_external_id,
                 s.pppoe_username,
                 s.sn AS onu_sn,
+                s.mode as Modo,
                 s.olt_name AS OLT,
                 n.name AS nodo_nombre,
                 n.ip_address AS nodo_ip,
@@ -78,7 +79,7 @@ class Database:
             return {"error": f"Cliente {pppoe_user} no encontrado"}
 
         diagnosis = {
-            "unique_external_id": row[0],
+            "unique_external_ids": row[0],
             "pppoe_username": row[1],
             "onu_sn": row[2],
             "OLT": row[3],
@@ -139,7 +140,8 @@ def init_db():
             onu_type_id TEXT,
             mode TEXT,
             node_id TEXT,
-            connection_id TEXT
+            connection_id TEXT,
+            vlan TEXT
         )
     """)
 

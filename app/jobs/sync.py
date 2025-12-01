@@ -69,6 +69,7 @@ def nightly_sync():
         db.match_connections()
         db.commit()
         config.logger.info("[SYNC] Base actualizada y relaciones PPPoE → node_id → connection_id completadas.")
+        print("[SYNC] Base actualizada y relaciones PPPoE → node_id → connection_id completadas.")
     finally:
         db.close()
 

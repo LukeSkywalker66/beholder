@@ -9,7 +9,7 @@ GET http://127.0.0.1:8088/subscribers/testuser
 x-api-key: beholder-2025-secret
 ### Buscar suscriptor de prueba (debe dar 200)
 GET http://127.0.0.1:8500/diagnosis/acavo
-x-api-key: supersecreta123
+x-api-key: beholder-2025-secret
 ### probar produccion
 GET http://138.59.172.24:8500/diagnosis/acavo
 x-api-key: supersecreta123
