@@ -19,17 +19,22 @@ app.add_middleware(
 )
 
 
-
 @app.on_event("startup")
 def startup_event():
     config.logger.info("Servicio Beholder iniciado.")
 
+# API key middleware (modificado para permitir OPTIONS)
 @app.middleware("http")
 async def check_api_key(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     key = request.headers.get("x-api-key")
     if key != config.API_KEY:
         return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+
     return await call_next(request)
+
 
 @app.get("/health")
 def health():
