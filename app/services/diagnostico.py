@@ -39,6 +39,6 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
         return diagnosis
     except Exception as e:
         logger.exception(f"Error en diagnóstico de {pppoe_user}. Detalles: {e}")
-        return diagnosis
+        return diagnosis # type: ignore
     finally:
         db.close()

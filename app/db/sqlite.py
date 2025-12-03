@@ -179,16 +179,79 @@ def init_db():
             direccion TEXT
         )
     """)
+     # Tabla de clientes (ISPCube)
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS sync_status (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fuente TEXT NOT NULL,                 -- 'smartolt', 'ispcube', 'mikrotik', etc.
-        ultima_actualizacion TEXT NOT NULL,   -- ISO 8601 (ej. '2025-11-26T19:45:00')
-        estado TEXT NOT NULL,                 -- 'ok', 'empty', 'error'
-        detalle TEXT
-    )
-    """)
+        CREATE TABLE IF NOT EXISTS clientes (
+            id INTEGER PRIMARY KEY,              -- id del cliente
+            code TEXT,
+            name TEXT,
+            tax_residence TEXT,
+            type TEXT,
+            tax_situation_id INTEGER,
+            identification_type_id INTEGER,
+            doc_number TEXT,
+            auto_bill_sending INTEGER,
+            auto_payment_recipe_sending INTEGER,
+            nickname TEXT,
+            comercial_activity TEXT,
+            address TEXT,
+            between_address1 TEXT,
+            between_address2 TEXT,
+            city_id INTEGER,
+            lat TEXT,
+            lng TEXT,
+            extra1 TEXT,
+            extra2 TEXT,
+            entity_id INTEGER,
+            collector_id INTEGER,
+            seller_id INTEGER,
+            block INTEGER,
+            free INTEGER,
+            apply_late_payment_due INTEGER,
+            apply_reconnection INTEGER,
+            contract INTEGER,
+            contract_type_id INTEGER,
+            contract_expiration_date TEXT,
+            paycomm TEXT,
+            expiration_type_id INTEGER,
+            business_id INTEGER,
+            first_expiration_date TEXT,
+            second_expiration_date TEXT,
+            next_month_corresponding_date INTEGER,
+            start_date TEXT,
+            perception_id INTEGER,
+            phonekey TEXT,
+            debt TEXT,
+            duedebt TEXT,
+            speed_limited INTEGER,
+            status TEXT,
+            enable_date TEXT,
+            block_date TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT,
+            temporary INTEGER
+        )
 
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fuente TEXT NOT NULL,                 -- 'smartolt', 'ispcube', 'mikrotik', etc.
+            ultima_actualizacion TEXT NOT NULL,   -- ISO 8601 (ej. '2025-11-26T19:45:00')
+            estado TEXT NOT NULL,                 -- 'ok', 'empty', 'error'
+            detalle TEXT
+        )
+    """)
+    
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS clientes_emails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES clientes(id)
+)
+    """)
     # Índice útil para consultas por fuente y fecha
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_sync_status_fuente_fecha

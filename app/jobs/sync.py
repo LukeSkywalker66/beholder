@@ -10,16 +10,16 @@ def sync_onus(db):
         db.cursor.execute("DELETE FROM subscribers")
         for onu in onus:
             db.insert_subscriber(
-                onu.get("unique_external_id"),
-                onu.get("sn"),
-                onu.get("olt_name"),
-                onu.get("olt_id"),
-                onu.get("board"),
-                onu.get("port"),
-                onu.get("onu"),
-                onu.get("onu_type_id"),
-                onu.get("name"),
-                onu.get("mode")
+                onu.get("unique_external_id"), # type: ignore
+                onu.get("sn"), # type: ignore
+                onu.get("olt_name"), # type: ignore
+                onu.get("olt_id"), # type: ignore
+                onu.get("board"), # type: ignore
+                onu.get("port"), # type: ignore
+                onu.get("onu"), # type: ignore
+                onu.get("onu_type_id"), # type: ignore
+                onu.get("name"), # type: ignore
+                onu.get("mode") # type: ignore
             )
         db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
         config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
