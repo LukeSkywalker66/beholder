@@ -80,8 +80,7 @@ def obtener_nodos():
         nodos.append({
             "id": n.get("id"),
             "name": n.get("comment"),
-            "ip": n.get("ip"),
-            "puerto": n.get("port")
+            "ip": n.get("ip")
         })
     return nodos
 
@@ -94,7 +93,7 @@ def obtener_conexion(pppoe):
     if data:
         conn = data[0]
         return conn["id"], conn.get("node_id")
-    logger.error(f"No se encontró conexión en ISPCube para {pppoe}")
+    logger.Error(f"No se encontró conexión en ISPCube para {pppoe}")
 
 
 def obtener_conexion_por_pppoe(pppoe_user):
@@ -107,13 +106,13 @@ def obtener_conexion_por_pppoe(pppoe_user):
 
     conexiones = cliente.get("connections", [])
     if not conexiones:
-        logger.error(f"No se encontraron conexiones para PPPoE {pppoe_user}")
+        logger.Error(f"No se encontraron conexiones para PPPoE {pppoe_user}")
 
     for conn in conexiones:
         if conn.get("conntype") == "pppoe" and conn.get("user") == pppoe_user:
             return conn["id"], conn.get("node_id")
 
-    logger.error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
+    logger.Error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
 
 
 def obtener_todas_conexiones():
@@ -126,7 +125,7 @@ def obtener_todas_conexiones():
     conexiones = resp.json()
 
     if not isinstance(conexiones, list):
-        logger.error("Respuesta inesperada de ISPCube al listar conexiones")
+        logger.Error("Respuesta inesperada de ISPCube al listar conexiones")
 
     resultado = []
     for c in conexiones:
@@ -151,7 +150,7 @@ def obtener_planes():
     planes = resp.json()
 
     if not isinstance(planes, list):
-        logger.error("Respuesta inesperada de ISPCube al listar planes")
+        logger.Error("Respuesta inesperada de ISPCube al listar planes")
 
     resultado = []
     for p in planes:
@@ -160,30 +159,5 @@ def obtener_planes():
             "name": p.get("name"),
             "speed": p.get("speed"),
             "comment": p.get("comment")
-        })
-    return resultado
-
-def obtener_clientes():
-    """
-    Devuelve lista de clientes con datos básicos desde ISPCube.
-    """
-    url = f"{ISPCUBE_BASEURL}/customers/customers_list"
-    resp = _request("GET", url)
-    clientes = resp.json()
-
-    if not isinstance(clientes, list):
-        logger.error("Respuesta inesperada de ISPCube al listar clientes")
-        return []
-
-    resultado = []
-    for c in clientes:
-        resultado.append({
-            "customer_id": c.get("id"),
-            "nombre": c.get("name"),
-            "direccion": c.get("address"),
-            "telefono": c.get("phone"),
-            "email": c.get("email"),
-            # lógica simple: si tiene ONU asociada → fibra, si no → antena
-            "tipo_conexion": "fibra" if c.get("onu_id") else "antena"
         })
     return resultado

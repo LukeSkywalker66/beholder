@@ -33,7 +33,7 @@ def sync_nodes(db):
     if nodes:
         db.cursor.execute("DELETE FROM nodes")  # Limpia la tabla antes de insertar
     for n in nodes:
-        db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
+        db.insert_node(n["id"], n["name"], n["ip"])
     config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
     db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizadas")
 

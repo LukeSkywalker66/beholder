@@ -14,7 +14,7 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
         diagnosis = base.copy()
 
         # Mikrotik → validación PPPoE usando nodo_ip
-        pppoe_info = mikrotik.validar_pppoe(base["nodo_ip"], pppoe_user)
+        pppoe_info = mikrotik.validar_pppoe(base["nodo_ip"], pppoe_user, base["puerto"])
         diagnosis["mikrotik"] = pppoe_info
         # if pppoe_info.get("active"):
         #     diagnosis["pppoe_active"] = True
@@ -36,6 +36,9 @@ def consultar_diagnostico(pppoe_user: str) -> dict:
         # diagnosis["plan"] = plan.get("name")
         # diagnosis["speed"] = plan.get("speed")
 
+        return diagnosis
+    except Exception as e:
+        logger.exception(f"Error en diagnóstico de {pppoe_user}. Detalles: {e}")
         return diagnosis
     finally:
         db.close()

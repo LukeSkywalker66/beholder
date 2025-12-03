@@ -5,11 +5,12 @@ GET http://127.0.0.1:8088/health
 GET http://127.0.0.1:8500/health
 x-api-key: supersecreta123
 ### Buscar suscriptor inexistente (debe dar 404)
-GET http://127.0.0.1:8088/subscribers/testuser
-x-api-key: beholder-2025-secret
+GET http://localhost:8500/subscribers/aamachuca
+x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
 ### Buscar suscriptor de prueba (debe dar 200)
-GET http://127.0.0.1:8500/diagnosis/acavo
-x-api-key: beholder-2025-secret
+GET http://127.0.0.1:8500/diagnosis/usuarioprueba
+x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
+
 ### probar produccion
-GET http://138.59.172.24:8500/diagnosis/acavo
-x-api-key: supersecreta123
+GET http://138.59.172.24:8500/diagnosis/usuarioprueba
+x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
