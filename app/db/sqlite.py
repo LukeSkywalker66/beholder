@@ -34,6 +34,27 @@ class Database:
             VALUES (?, ?, ?, ?, ?, ?)
         """, (connection_id, pppoe_username, customer_id, node_id, plan_id, direccion))
 
+    def insert_cliente(self, cliente_data: dict):
+        columns = ', '.join(cliente_data.keys())
+        placeholders = ', '.join('?' for _ in cliente_data)
+        values = tuple(cliente_data.values())
+        self.cursor.execute(f"""
+            INSERT OR REPLACE INTO clientes ({columns})
+            VALUES ({placeholders})
+        """, values)
+    
+    def insert_cliente_email(self, customer_id: int, email: str):
+        self.cursor.execute("""
+            INSERT INTO clientes_emails (customer_id, email)
+            VALUES (?, ?)
+        """, (customer_id, email))
+    
+    def insert_cliente_telefono(self, customer_id: int, number: str):
+        self.cursor.execute("""
+            INSERT INTO clientes_telefonos (customer_id, number)
+            VALUES (?, ?)
+        """, (customer_id, number))
+    
     def match_connections(self):
         self.cursor.execute("""
             UPDATE subscribers
@@ -93,30 +114,7 @@ class Database:
         }
         return diagnosis
     
-    # def get_diagnosis_base(self, pppoe_user: str) -> dict:
-    #     query = """
-    #     SELECT s.unique_external_id, s.pppoe_username, s.sn, s.olt_name,
-    #            c.connection_id, c.node_id, c.plan_id
-    #     FROM subscribers s
-    #     LEFT JOIN connections c ON s.connection_id = c.connection_id
-    #     WHERE s.pppoe_username = ?
-    #     """
-    #     self.cursor.execute(query, (pppoe_user,))
-    #     row = self.cursor.fetchone()
-    #     if not row:
-    #         return None
-
-    #     return {
-    #         "unique_external_id": row[0],
-    #         "pppoe_username": row[1],
-    #         "onu_sn": row[2],
-    #         "olt_name": row[3],
-    #         "connection_id": row[4],
-    #         "node_id": row[5],
-    #         "plan_id": row[6]
-    #     }
-
-
+    
 
     def commit(self):
         self.conn.commit()
@@ -124,7 +122,24 @@ class Database:
     def close(self):
         self.conn.close()
 
+### Fin de la clase Database ###
+def columnas_tabla(conn, tabla: str) -> set:
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA table_info({tabla})")
+        return {row[1] for row in cur.fetchall()}  # row[1] = nombre columna
 
+def insert_cliente_safe(db, json_cliente: dict):
+    cols = columnas_tabla(db.conn, "clientes")
+    data = mapear_cliente(json_cliente)
+
+    # Filtrar a solo columnas válidas
+    data_filtrada = {k: v for k, v in data.items() if k in cols}
+
+    # Reusar tu método dinámico
+    db.insert_cliente(data_filtrada)
+
+
+# Inicialización de la base de datos y creación de tablas
 def init_db():
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
@@ -179,6 +194,7 @@ def init_db():
             direccion TEXT
         )
     """)
+    
      # Tabla de clientes (ISPCube)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
@@ -234,6 +250,28 @@ def init_db():
         )
 
     """)
+
+    #Tabla de emails de clientes (ISPCube)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            email TEXT NOT NULL,
+            FOREIGN KEY (customer_id) REFERENCES clientes(id)
+        )
+    """)
+
+    #Tabla de teléfonos de clientes (ISPCube)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_telefonos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            number TEXT NOT NULL,
+            FOREIGN KEY (customer_id) REFERENCES clientes(id)
+        )
+    """)
+
+    # Tabla de estados de sincronización
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sync_status (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,15 +281,7 @@ def init_db():
             detalle TEXT
         )
     """)
-    
-    cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS clientes_emails (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_id INTEGER NOT NULL,
-    email TEXT NOT NULL,
-    FOREIGN KEY (customer_id) REFERENCES clientes(id)
-)
-    """)
+
     # Índice útil para consultas por fuente y fecha
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_sync_status_fuente_fecha

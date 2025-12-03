@@ -165,25 +165,16 @@ def obtener_planes():
 
 def obtener_clientes():
     """
-    Devuelve lista de clientes con datos básicos desde ISPCube.
+    Devuelve lista completa de clientes desde ISPCube.
+    Incluye todos los campos que el endpoint expone.
     """
     url = f"{ISPCUBE_BASEURL}/customers/customers_list"
     resp = _request("GET", url)
-    clientes = resp.json()
+    data = resp.json()
 
-    if not isinstance(clientes, list):
+    if not isinstance(data, list):
         logger.error("Respuesta inesperada de ISPCube al listar clientes")
         return []
 
-    resultado = []
-    for c in clientes:
-        resultado.append({
-            "customer_id": c.get("id"),
-            "nombre": c.get("name"),
-            "direccion": c.get("address"),
-            "telefono": c.get("phone"),
-            "email": c.get("email"),
-            # lógica simple: si tiene ONU asociada → fibra, si no → antena
-            "tipo_conexion": "fibra" if c.get("onu_id") else "antena"
-        })
-    return resultado
+    return data
+
