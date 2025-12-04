@@ -87,9 +87,11 @@ class Database:
                 n.ip_address AS nodo_ip,
                 n.puerto AS puerto,
                 p.name AS plan,
-                c.direccion AS direccion
-        FROM subscribers s
-        LEFT JOIN connections c ON s.connection_id = c.connection_id
+                c.direccion AS direccion,
+                l.name AS cliente_nombre
+        FROM clientes l
+        LEFT JOIN connections c ON l.id = c.customer_id
+        LEFT JOIN subscribers s ON c.pppoe_username = s.pppoe_username
         LEFT JOIN nodes n ON c.node_id = n.node_id
         LEFT JOIN plans p ON c.plan_id = p.plan_id
         WHERE s.pppoe_username = ?
@@ -110,7 +112,8 @@ class Database:
             "nodo_ip": row[6],
             "puerto": row[7],
             "plan": row[8],
-            "direccion": row[9]
+            "direccion": row[9],
+            "cliente_nombre": row[10]
         }
         return diagnosis
     
