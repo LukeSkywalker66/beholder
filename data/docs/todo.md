@@ -137,3 +137,7 @@ def nightly_sync():
 ---
 
 👉 ¿Querés que te arme también el `get_diagnosis` extendido para que, si el cliente es de antena, te devuelva los datos de `subscribers_aire` junto con el resto?
+
+
+
+validar datos de cnmaestro
