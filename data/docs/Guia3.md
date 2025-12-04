@@ -7,9 +7,11 @@ Beholder es una API de diagnóstico centralizado para clientes ISP (fibra y ante
 Su backend combina:
 - **FastAPI** para exponer endpoints REST.  
 - **SQLite** como base local de sincronización.  
-- **Integraciones externas** con SmartOLT, ISPCube, Mikrotik y GenieACS.  
-- **Proceso nocturno de sincronización** que actualiza la base con datos de las APIs externas.  
+- **Integraciones externas** con SmartOLT, ISPCube, Mikrotik y GenieACS a través de sus respectivas API.
+- **Proceso nocturno de sincronización** que actualiza la base con datos de las APIs externas, nutriendo datos de dificil acceso a través de los Endpoints de consultas de las API clientes.
 
+Ruta repositorio GitHub:
+https://github.com/LukeSkywalker66/beholder.git
 ---
 
 ## 2. Entorno de Producción
