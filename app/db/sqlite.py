@@ -94,7 +94,7 @@ class Database:
         LEFT JOIN subscribers s ON c.pppoe_username = s.pppoe_username
         LEFT JOIN nodes n ON c.node_id = n.node_id
         LEFT JOIN plans p ON c.plan_id = p.plan_id
-        WHERE s.pppoe_username = ?
+        WHERE c.pppoe_username = ?
         """
         self.cursor.execute(query, (pppoe_user,))
         row = self.cursor.fetchone()
