@@ -2175,31 +2175,6 @@ def nightly_sync():
 validar datos de cnmaestro
 
 ==================================================
-ARCHIVO: txt\.env.txt
-==================================================
-API_KEY=Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-SMARTOLT_BASEURL=https://2finternet.vortex-m2.com/api
-SMARTOLT_TOKEN=719561bf39484c22adbd9e501f7ac7e7
-# Credenciales comunes para todos los Mikrotik
-MK_USER=beholder_api
-MK_PASS=3l0j0qu3T0d0l0v3
-MK_PORT=8799   # 👈 tu puerto personalizado
-MK_HOST= 138.59.174.6 # mikrotik de laboratorio, comentar para producción
-GENIEACS_URL=http://138.59.172.24:7557/devices
-DB_PATH=data/diag.db
-ISPCUBE_BASEURL=https://online21.ispcube.com/api
-ISPCUBE_APIKEY=99e5dd24-ca53-48c6-aa85-68a38e7301a7
-ISPCUBE_USER=api
-ISPCUBE_PASSWORD=14cqcrzjEi2Vzf58Ijx7iUbM
-ISPCUBE_CLIENTID=423
-
-==================================================
-ARCHIVO: txt\.env2.txt
-==================================================
-VITE_API_URL=http://138.59.172.24:8500
-VITE_API_KEY=Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
-
-==================================================
 ARCHIVO: txt\App.css.txt
 ==================================================
 .layout {
