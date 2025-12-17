@@ -77,7 +77,7 @@ class Database:
     def search_client(self, query_str: str) -> list:
         """
         Busca clientes en ISPCube (administrativo) Y SmartOLT (técnico).
-        Usa UNION para traer resultados aunque el cliente no esté en el sistema de gestión.
+        Usa UNION. Corregido: subscribers no tiene columna name.
         """
         term = f"%{query_str}%"
         
@@ -100,7 +100,7 @@ class Database:
 
         SELECT 
             s.pppoe_username, 
-            COALESCE(s.name, 'Solo en OLT') as name, 
+            'Cliente Técnico (OLT)' as name, 
             'SN: ' || s.sn as address, 
             0 as id,
             'smartolt' as source
@@ -110,15 +110,16 @@ class Database:
             s.sn LIKE ?
         """
         
-        # 4 parámetros para el primer SELECT, 2 para el segundo
+        # 4 parámetros para la primera parte, 2 para la segunda
         self.cursor.execute(sql, (term, term, term, term, term, term))
         rows = self.cursor.fetchall()
         
         results = []
-        vistos = set() # Para evitar duplicados si está en ambos lados
+        vistos = set()
 
         for r in rows:
             pppoe = r[0]
+            # Filtramos si el pppoe es nulo o ya lo vimos
             if not pppoe or pppoe in vistos:
                 continue
             vistos.add(pppoe)
