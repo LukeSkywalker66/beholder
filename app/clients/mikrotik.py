@@ -38,7 +38,22 @@ def obtener_secret(router_ip, pppoe_user, puerto): #MIKROTIK_IP, router_ip
     except Exception as e:
         logger.error(f"Error al obtener secret {pppoe_user} en {router_ip}: {e}")
         return {"error": str(e)}
-    
+
+# Obtener todos los secrets del router
+def get_all_secrets(router_ip, port):
+    """
+    Descarga la lista completa de secrets del router.
+    """
+    try:
+        pool, api = _connect(router_ip, port)
+        # Pedimos todos los secrets
+        secrets = api.get_resource('/ppp/secret').get()
+        pool.disconnect()
+        return secrets
+    except Exception as e:
+        logger.error(f"Error al obtener todos los secrets de {router_ip}: {e}")
+        return []
+
 # def crear_secret(router_ip, datos_secret):
 #     pool, api = _connect(router_ip)
 #     secrets = api.get_resource('/ppp/secret')

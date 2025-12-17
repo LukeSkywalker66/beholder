@@ -8,9 +8,8 @@ class Database:
         self.conn = sqlite3.connect(path)
         self.cursor = self.conn.cursor()
 
-    # ... (Los métodos insert_* y log_sync_status quedan igual, los omito para brevedad si ya los tenés, 
-    # pero asegurate de mantener insert_subscriber, insert_node, etc.) ...
-    
+    # ------------------ INSERTS ------------------
+
     def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode):
         self.cursor.execute("""
             INSERT OR REPLACE INTO subscribers (
@@ -50,7 +49,41 @@ class Database:
     
     def insert_cliente_telefono(self, customer_id: int, number: str):
         self.cursor.execute("INSERT INTO clientes_telefonos (customer_id, number) VALUES (?, ?)", (customer_id, number))
-    
+
+    def insert_secret(self, secret_data: dict, router_ip: str):
+        """
+        Inserta o actualiza un secret traído del Mikrotik.
+        CORREGIDO: Usa 'last-caller-id' para guardar la MAC histórica real.
+        """
+        self.cursor.execute("""
+            INSERT OR REPLACE INTO ppp_secrets (name, password, profile, service, last_caller_id, comment, router_ip, last_logged_out)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            secret_data.get("name"),
+            secret_data.get("password"),
+            secret_data.get("profile"),
+            secret_data.get("service"),
+            secret_data.get("last-caller-id"),  # <--- CORREGIDO: el dato real de la MAC
+            secret_data.get("comment"),
+            router_ip,
+            secret_data.get("last-logged-out")
+        ))
+
+    # ------------------ UTILIDADES ------------------
+
+    def get_nodes_for_sync(self) -> list:
+        self.cursor.execute("SELECT ip_address, puerto, name FROM nodes WHERE ip_address IS NOT NULL AND ip_address != ''")
+        rows = self.cursor.fetchall()
+        
+        nodes = []
+        for r in rows:
+            nodes.append({
+                "ip": r[0],
+                "port": int(r[1]) if r[1] and r[1].isdigit() else None,
+                "name": r[2]
+            })
+        return nodes
+
     def match_connections(self):
         self.cursor.execute("""
             UPDATE subscribers
@@ -72,76 +105,62 @@ class Database:
         """, (fuente, datetime.now(), estado, detalle))
         self.commit()
 
-    # --- NUEVOS MÉTODOS Y REFACTORIZACIÓN ---
+    # ------------------ BÚSQUEDA Y DIAGNÓSTICO ------------------
 
     def search_client(self, query_str: str) -> list:
         """
-        Busca clientes en ISPCube (administrativo) Y SmartOLT (técnico).
-        Usa UNION. Corregido: subscribers no tiene columna name.
+        Búsqueda centrada en PPPoE Secrets (Mikrotik).
+        Ahora permite buscar también por MAC (last_caller_id).
         """
         term = f"%{query_str}%"
         
         sql = """
         SELECT 
-            c.pppoe_username, 
-            cl.name, 
-            cl.address, 
-            cl.id,
-            'ispcube' as source
-        FROM clientes cl
-        JOIN connections c ON cl.id = c.customer_id
+            p.name as pppoe,
+            COALESCE(cl.name, p.comment, 'Usuario Técnico') as nombre,
+            COALESCE(cl.address, 'SN: ' || IFNULL(s.sn, '?'), p.comment, 'Sin Dirección') as direccion,
+            COALESCE(cl.id, 0) as id,
+            CASE 
+                WHEN cl.id IS NOT NULL THEN 'ispcube'
+                WHEN s.unique_external_id IS NOT NULL THEN 'smartolt'
+                ELSE 'mikrotik'
+            END as origen,
+            p.last_caller_id as mac
+        FROM ppp_secrets p
+        LEFT JOIN connections c ON p.name = c.pppoe_username
+        LEFT JOIN clientes cl ON c.customer_id = cl.id
+        LEFT JOIN subscribers s ON p.name = s.pppoe_username
         WHERE 
+            p.name LIKE ? OR 
             cl.name LIKE ? OR 
             cl.address LIKE ? OR 
-            c.pppoe_username LIKE ? OR
-            cl.doc_number LIKE ?
-
-        UNION
-
-        SELECT 
-            s.pppoe_username, 
-            'Cliente Técnico (OLT)' as name, 
-            'SN: ' || s.sn as address, 
-            0 as id,
-            'smartolt' as source
-        FROM subscribers s
-        WHERE 
-            s.pppoe_username LIKE ? OR
-            s.sn LIKE ?
+            s.sn LIKE ? OR
+            p.comment LIKE ? OR
+            p.last_caller_id LIKE ?
+        LIMIT 20
         """
-        
-        # 4 parámetros para la primera parte, 2 para la segunda
+        # 6 parámetros para buscar también por MAC
         self.cursor.execute(sql, (term, term, term, term, term, term))
         rows = self.cursor.fetchall()
         
         results = []
-        vistos = set()
-
         for r in rows:
-            pppoe = r[0]
-            # Filtramos si el pppoe es nulo o ya lo vimos
-            if not pppoe or pppoe in vistos:
-                continue
-            vistos.add(pppoe)
-
             results.append({
-                "pppoe": pppoe,
+                "pppoe": r[0],
                 "nombre": r[1],
                 "direccion": r[2],
                 "id": r[3],
-                "origen": r[4]
+                "origen": r[4],
+                "mac": r[5]
             })
             
-        return results[:20]
+        return results
 
     def get_diagnosis(self, pppoe_user: str) -> dict:
         """
         Obtiene datos para diagnóstico.
-        Intenta primero el camino completo (ISPCube + SmartOLT).
-        Si falla, hace fallback a solo SmartOLT (Subscribers).
         """
-        
-        # 1. Intento Administrativo + Técnico (El original)
+        # 1. Intento Administrativo + Técnico Completo
         query_full = """
         SELECT s.unique_external_id,
                 s.pppoe_username,
@@ -180,9 +199,8 @@ class Database:
             }
 
         # 2. Fallback: Solo Técnico (SmartOLT)
-        # Si llegamos acá, es porque no estaba en connections (ISPCube)
         query_tech = """
-        SELECT unique_external_id, pppoe_username, sn, mode, olt_name, name
+        SELECT unique_external_id, pppoe_username, sn, mode, olt_name
         FROM subscribers
         WHERE pppoe_username = ?
         """
@@ -197,14 +215,34 @@ class Database:
                 "Modo": row_tech[3],
                 "OLT": row_tech[4],
                 "nodo_nombre": "Desconocido (Solo OLT)",
-                "nodo_ip": None, # Importante: No tenemos IP del nodo
+                "nodo_ip": None, 
                 "puerto": None,
                 "plan": "N/A",
                 "direccion": "N/A",
-                "cliente_nombre": row_tech[5] or "Sin Nombre en OLT"
+                "cliente_nombre": "Cliente Técnico (Sin Gestión)"
             }
 
-        # 3. Si no está ni en la OLT ni en el CRM, devolvemos error
+        # 3. Fallback final: Solo Secrets (Mikrotik)
+        query_secret = "SELECT name, comment, router_ip, last_caller_id FROM ppp_secrets WHERE name = ?"
+        self.cursor.execute(query_secret, (pppoe_user,))
+        row_sec = self.cursor.fetchone()
+        
+        if row_sec:
+             return {
+                "unique_external_id": None,
+                "pppoe_username": row_sec[0],
+                "onu_sn": "N/A",
+                "Modo": "N/A",
+                "OLT": "N/A",
+                "nodo_nombre": "Router Mikrotik",
+                "nodo_ip": row_sec[2],
+                "puerto": None,
+                "plan": "N/A",
+                "direccion": row_sec[1] or "N/A",
+                "cliente_nombre": "Solo en Router (Secret)",
+                "mac": row_sec[3]
+            }
+
         return {"error": f"Cliente {pppoe_user} no encontrado en ninguna base."}
 
     def commit(self):
@@ -213,4 +251,40 @@ class Database:
     def close(self):
         self.conn.close()
 
-# ... (init_db y demás funciones auxiliares se mantienen igual) ...
+# ------------------ INICIALIZACIÓN DB ------------------
+
+def init_db():
+    conn = sqlite3.connect(config.DB_PATH)
+    cursor = conn.cursor()
+
+    # (Tablas subscribers, nodes, plans, connections, clientes, emails, telefonos, sync_status OMITIDAS - NO CAMBIAN)
+    # PEGO DE NUEVO LAS CREACIONES PARA QUE NO TENGAS QUE BUSCARLAS
+    
+    cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (unique_external_id TEXT PRIMARY KEY, pppoe_username TEXT, sn TEXT, olt_name TEXT, olt_id TEXT, board TEXT, port TEXT, onu TEXT, onu_type_id TEXT, mode TEXT, node_id TEXT, connection_id TEXT, vlan TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS nodes (node_id TEXT PRIMARY KEY, name TEXT, ip_address TEXT, puerto TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS plans (plan_id TEXT PRIMARY KEY, name TEXT, speed TEXT, description TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS connections (connection_id TEXT PRIMARY KEY, pppoe_username TEXT, customer_id TEXT, node_id TEXT, plan_id TEXT, direccion TEXT)")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS clientes (
+            id INTEGER PRIMARY KEY, code TEXT, name TEXT, tax_residence TEXT, type TEXT, tax_situation_id INTEGER, identification_type_id INTEGER, doc_number TEXT, auto_bill_sending INTEGER, auto_payment_recipe_sending INTEGER, nickname TEXT, comercial_activity TEXT, address TEXT, between_address1 TEXT, between_address2 TEXT, city_id INTEGER, lat TEXT, lng TEXT, extra1 TEXT, extra2 TEXT, entity_id INTEGER, collector_id INTEGER, seller_id INTEGER, block INTEGER, free INTEGER, apply_late_payment_due INTEGER, apply_reconnection INTEGER, contract INTEGER, contract_type_id INTEGER, contract_expiration_date TEXT, paycomm TEXT, expiration_type_id INTEGER, business_id INTEGER, first_expiration_date TEXT, second_expiration_date TEXT, next_month_corresponding_date INTEGER, start_date TEXT, perception_id INTEGER, phonekey TEXT, debt TEXT, duedebt TEXT, speed_limited INTEGER, status TEXT, enable_date TEXT, block_date TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT, temporary INTEGER
+        )""")
+    cursor.execute("CREATE TABLE IF NOT EXISTS clientes_emails (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, email TEXT NOT NULL, FOREIGN KEY (customer_id) REFERENCES clientes(id))")
+    cursor.execute("CREATE TABLE IF NOT EXISTS clientes_telefonos (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, number TEXT NOT NULL, FOREIGN KEY (customer_id) REFERENCES clientes(id))")
+    cursor.execute("CREATE TABLE IF NOT EXISTS sync_status (id INTEGER PRIMARY KEY AUTOINCREMENT, fuente TEXT NOT NULL, ultima_actualizacion TEXT NOT NULL, estado TEXT NOT NULL, detalle TEXT)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_status_fuente_fecha ON sync_status (fuente, ultima_actualizacion)")
+
+    # --- NUEVA TABLA: Secrets de Mikrotik con LAST CALLER ID ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ppp_secrets (
+            name TEXT PRIMARY KEY,
+            password TEXT,
+            profile TEXT,
+            service TEXT,
+            last_caller_id TEXT,      -- <--- CORREGIDO: MAC Histórica
+            comment TEXT,
+            router_ip TEXT,
+            last_logged_out TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
