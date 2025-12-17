@@ -81,15 +81,16 @@ class Database:
         return nodes
 
     def match_connections(self):
+        # Usamos LOWER para asegurar que el matcheo no falle por mayúsculas/minúsculas
         self.cursor.execute("""
             UPDATE subscribers
             SET node_id = (
                 SELECT node_id FROM connections
-                WHERE connections.pppoe_username = subscribers.pppoe_username
+                WHERE LOWER(connections.pppoe_username) = LOWER(subscribers.pppoe_username)
             ),
             connection_id = (
                 SELECT connection_id FROM connections
-                WHERE connections.pppoe_username = subscribers.pppoe_username
+                WHERE LOWER(connections.pppoe_username) = LOWER(subscribers.pppoe_username)
             )
         """)
         self.commit()
@@ -101,15 +102,21 @@ class Database:
         """, (fuente, datetime.now(), estado, detalle))
         self.commit()
 
-    # ------------------ BÚSQUEDA Y DIAGNÓSTICO ------------------
+    # ------------------ BÚSQUEDA Y DIAGNÓSTICO (LÓGICA CORE) ------------------
 
     def search_client(self, query_str: str) -> list:
+        """
+        Busca priorizando la tabla de Secrets (Mikrotik) para asegurar que todo lo técnico aparezca.
+        Cruza con Clientes para enriquecer datos si existen.
+        """
         term = f"%{query_str}%"
+        
+        # JOIN con LOWER para evitar duplicados por casing (Juan vs juan)
         sql = """
         SELECT 
             p.name as pppoe,
-            COALESCE(cl.name, p.comment, 'No Vinculado') as nombre,
-            COALESCE(cl.address, 'SN: ' || IFNULL(s.sn, '?'), p.comment, 'Sin Dirección') as direccion,
+            COALESCE(cl.name, 'No Vinculado') as nombre,
+            COALESCE(cl.address, 'SN: ' || IFNULL(s.sn, '?'), 'Sin Dirección') as direccion,
             COALESCE(cl.id, 0) as id,
             CASE 
                 WHEN cl.id IS NOT NULL THEN 'ispcube'
@@ -118,19 +125,21 @@ class Database:
             END as origen,
             p.last_caller_id as mac
         FROM ppp_secrets p
-        LEFT JOIN connections c ON p.name = c.pppoe_username
+        LEFT JOIN connections c ON LOWER(p.name) = LOWER(c.pppoe_username)
         LEFT JOIN clientes cl ON c.customer_id = cl.id
-        LEFT JOIN subscribers s ON p.name = s.pppoe_username
+        LEFT JOIN subscribers s ON LOWER(p.name) = LOWER(s.pppoe_username)
         WHERE 
             p.name LIKE ? OR 
             cl.name LIKE ? OR 
             cl.address LIKE ? OR 
             s.sn LIKE ? OR
-            p.comment LIKE ? OR
             p.last_caller_id LIKE ?
         LIMIT 20
         """
-        self.cursor.execute(sql, (term, term, term, term, term, term))
+        # Eliminé la búsqueda por comentario en el WHERE principal para limpiar ruido, 
+        # pero podés agregar 'OR p.comment LIKE ?' si querés.
+        
+        self.cursor.execute(sql, (term, term, term, term, term))
         rows = self.cursor.fetchall()
         
         results = []
@@ -147,9 +156,13 @@ class Database:
 
     def get_diagnosis(self, pppoe_user: str) -> dict:
         """
-        Obtiene datos para diagnóstico con lógica unificada.
+        Lógica Unificada:
+        1. Intenta buscar por vía administrativa (ISPCube).
+        2. Si falla, busca por vía técnica (Secrets/SmartOLT) y resuelve el nodo dinámicamente.
         """
-        # 1. INTENTO ADMINISTRATIVO (ISPCube - Camino Feliz)
+        
+        # 1. INTENTO ADMINISTRATIVO (ISPCube)
+        # Usamos LOWER en el WHERE y en los JOINs para robustez
         query_full = """
         SELECT s.unique_external_id,
                 s.pppoe_username,
@@ -165,16 +178,17 @@ class Database:
                 sec.last_caller_id as mac
         FROM clientes l
         LEFT JOIN connections c ON l.id = c.customer_id
-        LEFT JOIN subscribers s ON c.pppoe_username = s.pppoe_username
+        LEFT JOIN subscribers s ON LOWER(c.pppoe_username) = LOWER(s.pppoe_username)
         LEFT JOIN nodes n ON c.node_id = n.node_id
         LEFT JOIN plans p ON c.plan_id = p.plan_id
-        LEFT JOIN ppp_secrets sec ON c.pppoe_username = sec.name
-        WHERE c.pppoe_username = ?
+        LEFT JOIN ppp_secrets sec ON LOWER(c.pppoe_username) = LOWER(sec.name)
+        WHERE LOWER(c.pppoe_username) = LOWER(?)
         """
         self.cursor.execute(query_full, (pppoe_user,))
         row = self.cursor.fetchone()
 
         if row:
+            # ¡Éxito! Tenemos datos administrativos completos
             return {
                 "unique_external_id": row[0],
                 "pppoe_username": row[1],
@@ -190,14 +204,14 @@ class Database:
                 "mac": row[11]
             }
 
-        # 2. INTENTO TÉCNICO UNIFICADO
+        # 2. INTENTO TÉCNICO (Sin Gestión / No Vinculado)
         
         # A) Buscar en SmartOLT (Subscribers)
-        self.cursor.execute("SELECT * FROM subscribers WHERE pppoe_username = ?", (pppoe_user,))
+        self.cursor.execute("SELECT * FROM subscribers WHERE LOWER(pppoe_username) = LOWER(?)", (pppoe_user,))
         sub_row = self.cursor.fetchone()
         
         # B) Buscar en Mikrotik (Secrets)
-        self.cursor.execute("SELECT * FROM ppp_secrets WHERE name = ?", (pppoe_user,))
+        self.cursor.execute("SELECT * FROM ppp_secrets WHERE LOWER(name) = LOWER(?)", (pppoe_user,))
         sec_row = self.cursor.fetchone()
 
         if not sub_row and not sec_row:
@@ -230,25 +244,28 @@ class Database:
         if sec_row:
             diagnosis["mac"] = sec_row[4]
             raw_ip = sec_row[6]
+            comment = sec_row[5]
             
-            # D) CORRECCIÓN: Usar la IP del secret como PUNTERO a la tabla nodes
+            # D) RESOLUCIÓN DE NODO (EL ESLABÓN PERDIDO)
+            # Buscamos en la tabla NODES quién tiene esta IP
             if raw_ip:
                 self.cursor.execute("SELECT name, ip_address, puerto FROM nodes WHERE ip_address = ?", (raw_ip,))
                 node_row = self.cursor.fetchone()
                 
                 if node_row:
-                    # Encontramos el nodo oficial: Usamos SU configuración (incluyendo puerto)
+                    # ¡Encontramos el nodo oficial!
                     diagnosis["nodo_nombre"] = node_row[0]
                     diagnosis["nodo_ip"] = node_row[1]
                     diagnosis["puerto"] = node_row[2]
                 else:
-                    # Fallback: No está en tabla nodes, usamos la IP cruda (puerto irá a default)
+                    # Es una IP que no está en la tabla nodes de ISPCube
                     diagnosis["nodo_nombre"] = f"Router {raw_ip}"
                     diagnosis["nodo_ip"] = raw_ip
                     diagnosis["puerto"] = None 
 
-            if sec_row[5]: 
-                 diagnosis["direccion"] = f"MK: {sec_row[5]}"
+            # Agregamos el comentario técnico solo si existe, pero NO pisamos el nombre ni dirección
+            if comment:
+                 diagnosis["comentario_tecnico"] = comment
 
         return diagnosis
 
@@ -264,7 +281,7 @@ def init_db():
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
-    # Tablas existentes (resumido)
+    # Tablas existentes
     cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (unique_external_id TEXT PRIMARY KEY, pppoe_username TEXT, sn TEXT, olt_name TEXT, olt_id TEXT, board TEXT, port TEXT, onu TEXT, onu_type_id TEXT, mode TEXT, node_id TEXT, connection_id TEXT, vlan TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS nodes (node_id TEXT PRIMARY KEY, name TEXT, ip_address TEXT, puerto TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS plans (plan_id TEXT PRIMARY KEY, name TEXT, speed TEXT, description TEXT)")
@@ -277,7 +294,7 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS sync_status (id INTEGER PRIMARY KEY AUTOINCREMENT, fuente TEXT NOT NULL, ultima_actualizacion TEXT NOT NULL, estado TEXT NOT NULL, detalle TEXT)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_status_fuente_fecha ON sync_status (fuente, ultima_actualizacion)")
 
-    # Tabla Secrets
+    # Tabla Secrets (La Verdad Técnica)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ppp_secrets (
             name TEXT PRIMARY KEY,
