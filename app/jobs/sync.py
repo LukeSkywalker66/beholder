@@ -1,11 +1,38 @@
 from app.db.sqlite import Database, init_db
 from app.clients import smartolt, ispcube, mikrotik
 from app import config
+from app.utils.safe_call import safe_call
 import time
 
-# ==========================================
-# FUNCIONES DE SINCRONIZACIÓN
-# ==========================================
+def sync_onus(db):
+    print("   ↳ Consultando SmartOLT...", end=" ", flush=True)
+    try:
+        onus = smartolt.get_all_onus()
+        if onus:
+            db.cursor.execute("DELETE FROM subscribers")
+            for onu in onus:
+                db.insert_subscriber(
+                    onu.get("unique_external_id"), # type: ignore
+                    onu.get("sn"), # type: ignore
+                    onu.get("olt_name"), # type: ignore
+                    onu.get("olt_id"), # type: ignore
+                    onu.get("board"), # type: ignore
+                    onu.get("port"), # type: ignore
+                    onu.get("onu"), # type: ignore
+                    onu.get("onu_type_id"), # type: ignore
+                    onu.get("name"), # type: ignore
+                    onu.get("mode") # type: ignore
+                )
+            db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
+            config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
+            print(f"✅ ({len(onus)} ONUs)")
+        else:
+            db.log_sync_status("smartolt", "empty", "SmartOLT no devolvió datos")
+            config.logger.info(f"[SYNC] no se pudo sincronizar ONUs.")
+            print("⚠️ Sin datos")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        config.logger.error(f"[SYNC] Error SmartOLT: {e}")
 
 def sync_nodes(db):
     print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
@@ -15,148 +42,143 @@ def sync_nodes(db):
             db.cursor.execute("DELETE FROM nodes")
             for n in nodes:
                 db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
-            db.commit()
-            print(f"✅ ({len(nodes)} encontrados)")
             config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizados")
+            print(f"✅ ({len(nodes)} encontrados)")
         else:
             print("⚠️ Lista vacía")
-            config.logger.warning("[SYNC] ISPCube devolvió lista de nodos vacía.")
     except Exception as e:
         print(f"❌ Error: {e}")
-        config.logger.error(f"[SYNC] Error bajando Nodos: {e}")
+        config.logger.error(f"[SYNC] Error Nodos: {e}")
 
-def sync_secrets(db):
-    nodes = db.get_nodes_for_sync()
-    if not nodes:
-        print("   ↳ ⚠️ No hay nodos para consultar Mikrotik.")
-        return
-
-    # Borramos y regeneramos la foto técnica completa
-    db.cursor.execute("DELETE FROM ppp_secrets")
-    
-    print(f"   ↳ Consultando {len(nodes)} Mikrotiks...", end=" ", flush=True)
-    
-    count_ok = 0
-    total_secrets = 0
-    
-    for node in nodes:
-        ip = node["ip"]
-        port = node["port"] if node["port"] else config.MK_PORT
-        try:
-            secrets = mikrotik.get_all_secrets(ip, port)
-            if secrets is not None:
-                for s in secrets:
-                    db.insert_secret(s, ip) 
-                total_secrets += len(secrets)
-                count_ok += 1
-        except Exception as e:
-            config.logger.error(f"[SYNC] Error en router {ip}: {e}")
-
-    db.commit()
-    print(f"✅ ({total_secrets} secrets en {count_ok}/{len(nodes)} routers)")
-    config.logger.info(f"[SYNC] Secrets sincronizados: {total_secrets}.")
-
-def sync_onus(db):
-    print("   ↳ Consultando SmartOLT...", end=" ", flush=True)
-    try:
-        onus = smartolt.get_all_onus()
-        if onus:
-            db.cursor.execute("DELETE FROM subscribers")
-            for onu in onus:
-                db.insert_subscriber(onu.get("unique_external_id"), onu.get("sn"), onu.get("olt_name"), onu.get("olt_id"), onu.get("board"), onu.get("port"), onu.get("onu"), onu.get("onu_type_id"), onu.get("name"), onu.get("mode"))
-            db.commit()
-            print(f"✅ ({len(onus)} ONUs)")
-            config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
-        else:
-            print("⚠️ Sin datos")
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        config.logger.error(f"[SYNC] Error SmartOLT: {e}")
-
-def sync_administrativos(db):
-    # Planes
+def sync_plans(db):
     print("   ↳ [ISPCube] Bajando Planes...", end=" ", flush=True)
     try:
         planes = ispcube.obtener_planes()
         if planes:
             db.cursor.execute("DELETE FROM plans")
-            for p in planes: db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
-            db.commit()
+            for p in planes:
+                db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
+            config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(planes)} planes sincronizados")
             print(f"✅ ({len(planes)})")
         else: print("⚠️")
     except Exception as e: print(f"❌ {e}")
 
-    # Conexiones
+def sync_connections(db):
     print("   ↳ [ISPCube] Bajando Conexiones...", end=" ", flush=True)
     try:
         conexiones = ispcube.obtener_todas_conexiones()
         if conexiones:
             db.cursor.execute("DELETE FROM connections")
-            for c in conexiones: db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"], c.get("direccion"))
-            db.commit()
+            for c in conexiones:
+                # FIX: Obtenemos dirección de la conexión para búsqueda correcta
+                direccion_instalacion = c.get("direccion") or c.get("address")
+                db.insert_connection(c["id"], c["user"], c["customer_id"], c["node_id"], c["plan_id"], direccion_instalacion)
+            config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
+            db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conecciones sincronizadas")
             print(f"✅ ({len(conexiones)})")
         else: print("⚠️")
     except Exception as e: print(f"❌ {e}")
 
-    # Clientes
-    print("   ↳ [ISPCube] Bajando Clientes (Esto puede tardar)...", end=" ", flush=True)
+def sync_secrets(db):
+    # Log detallado paso a paso para identificar nodos fallidos
+    nodes = db.get_nodes_for_sync()
+    if not nodes:
+        config.logger.warning("[SYNC] No hay nodos para sync secrets.")
+        print("   ↳ ⚠️ No hay nodos para consultar Mikrotik.")
+        return
+
+    # Borramos la tabla para regenerarla limpia
+    db.cursor.execute("DELETE FROM ppp_secrets")
+    
+    print(f"   ↳ Consultando {len(nodes)} Mikrotiks:")
+    
+    total_secrets = 0
+    count_ok = 0
+
+    for node in nodes:
+        ip = node["ip"]
+        name = node["name"]
+        port = node["port"] if node["port"] else config.MK_PORT
+        
+        # Mensaje de progreso
+        print(f"      > {name} ({ip})...", end=" ", flush=True)
+        
+        try:
+            secrets = mikrotik.get_all_secrets(ip, port)
+            if secrets is not None:
+                for s in secrets:
+                    db.insert_secret(s, ip)
+                count = len(secrets)
+                total_secrets += count
+                count_ok += 1
+                print(f"✅ ({count})")
+            else:
+                print("⚠️ Sin respuesta/Vacío")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            config.logger.error(f"[SYNC] Error en router {ip}: {e}")
+    
+    db.commit()
+    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados de {count_ok}/{len(nodes)} nodos.")
+    print(f"   ↳ Resumen: {total_secrets} secrets guardados.")
+
+def sync_clientes(db):
+    print("   ↳ [ISPCube] Bajando Clientes (Paginado)...", end=" ", flush=True)
     try:
         clientes = ispcube.obtener_clientes()
         if clientes:
             db.cursor.execute("DELETE FROM clientes")
             db.cursor.execute("DELETE FROM clientes_emails")
             db.cursor.execute("DELETE FROM clientes_telefonos")
+
             for c in clientes:
-                db.insert_cliente(mapear_cliente(c))
+                cliente_data = mapear_cliente(c)
+                db.insert_cliente(cliente_data)
                 insertar_contactos_relacionados(db, c)
+
             db.commit()
-            print(f"✅ ({len(clientes)})")
             config.logger.info(f"[SYNC] {len(clientes)} clientes sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(clientes)} clientes sincronizados")
+            print(f"✅ ({len(clientes)})")
         else:
+            config.logger.warning("[SYNC] ISPCube no devolvió clientes")
+            db.log_sync_status("ispcube", "empty", "Sin datos de clientes")
             print("⚠️ Vacío")
-    except Exception as e: 
-        print(f"❌ FALLÓ: {e}")
-        config.logger.error(f"[SYNC] CRÍTICO: Error bajando Clientes ISPCube: {e}")
+    except Exception as e:
+        print(f"❌ {e}")
 
 def insertar_contactos_relacionados(db, json_cliente: dict):
     for email_obj in json_cliente.get("contact_emails", []):
-        if email_obj.get("email"): db.insert_cliente_email(json_cliente["id"], email_obj.get("email"))
+        if email_obj.get("email"):
+            db.insert_cliente_email(json_cliente["id"], email_obj.get("email"))
     for tel_obj in json_cliente.get("phones", []):
-        if tel_obj.get("number"): db.insert_cliente_telefono(json_cliente["id"], tel_obj.get("number"))
+        if tel_obj.get("number"):
+            db.insert_cliente_telefono(json_cliente["id"], tel_obj.get("number"))
 
-# ==========================================
-# MAIN
-# ==========================================
 def nightly_sync():
     init_db()
     db = Database()
-    
     print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
-    
-    # 1. Nodos
-    sync_nodes(db)
-    
-    # 2. Secrets
-    sync_secrets(db)
-    
-    # 3. ONUs
-    sync_onus(db)
-    
-    # 4. Datos Administrativos
-    sync_administrativos(db)
-    
-    # 5. Relacionar
-    print("   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
     try:
+        sync_nodes(db)
+        sync_secrets(db)
+        sync_onus(db)
+        sync_plans(db)
+        sync_connections(db)
+        sync_clientes(db)
+        
+        print("   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
         db.match_connections()
+        db.commit()
         print("✅ OK")
-    except Exception as e:
-        print(f"❌ {e}")
-    
-    db.close()
-    print("\n[SYNC] ✨ Finalizado con éxito.\n")
+        
+        config.logger.info("[SYNC] Sincronización completa finalizada.")
+    finally:
+        db.close()
+        print("\n[SYNC] ✨ Finalizado.\n")
 
-# (Mapeo igual que siempre)
 def mapear_cliente(json_cliente: dict) -> dict:
     return {
         "id": json_cliente.get("id"),
