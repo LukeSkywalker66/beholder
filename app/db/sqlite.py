@@ -59,14 +59,16 @@ class Database:
         
         # 3 Búsquedas separadas unidas por UNION ALL (Mucho más rápido que JOIN con OR)
         sql = """
+        -- 1. ISPCube (Nombre, Dirección, PPPoE o DNI)
         SELECT 
             c.pppoe_username as pppoe, cl.name as nombre, cl.address as direccion, cl.id as id, 'ispcube' as origen, '' as mac
         FROM clientes cl
         JOIN connections c ON cl.id = c.customer_id
-        WHERE cl.name LIKE ? OR cl.address LIKE ? OR c.pppoe_username LIKE ?
+        WHERE cl.name LIKE ? OR cl.address LIKE ? OR c.pppoe_username LIKE ? OR cl.doc_number LIKE ?
 
         UNION ALL
 
+        -- 2. Mikrotik (Secrets)
         SELECT 
             name as pppoe, 'No Vinculado' as nombre, 
             CASE WHEN comment IS NOT NULL AND comment != '' THEN 'MK: ' || comment ELSE 'Sin Dirección' END as direccion,
@@ -76,6 +78,7 @@ class Database:
 
         UNION ALL
 
+        -- 3. SmartOLT
         SELECT 
             pppoe_username as pppoe, 'No Vinculado' as nombre, 'SN: ' || sn as direccion,
             0 as id, 'smartolt' as origen, '' as mac
@@ -84,12 +87,13 @@ class Database:
         LIMIT 50
         """
         
-        args = (term, term, term, term, term, term, term)
+        # IMPORTANTE: Ahora son 8 argumentos (4 para el primer bloque, 2 para el segundo, 2 para el tercero)
+        args = (term, term, term, term, term, term, term, term)
+        
         self.cursor.execute(sql, args)
         rows = self.cursor.fetchall()
 
         results_map = {}
-        # Lógica de deduplicación en Python
         for r in rows:
             pppoe = r['pppoe']
             origen = r['origen']
