@@ -1,8 +1,7 @@
-
 import requests
+import sys
 from app import config
 from app.config import logger
-from app.utils.safe_call import safe_call
 
 ISPCUBE_BASEURL = config.ISPCUBE_BASEURL
 ISPCUBE_APIKEY = config.ISPCUBE_APIKEY
@@ -57,13 +56,17 @@ def _request(method, url, **kwargs):
     token = _get_token()
     headers = kwargs.pop("headers", {})
     headers.update(_headers(token))
+    
+    # IMPORTANTE: requests maneja 'params' automáticamente si se pasan en kwargs
     resp = requests.request(method, url, headers=headers, **kwargs)
+    
     if resp.status_code == 401:
         # Token expirado → renovar y reintentar
         logger.warning("Token expirado, renovando...")
         token = _get_token(force_refresh=True)
         headers.update(_headers(token))
         resp = requests.request(method, url, headers=headers, **kwargs)
+    
     resp.raise_for_status()
     return resp
 
@@ -87,7 +90,6 @@ def obtener_nodos():
 
 
 def obtener_conexion(pppoe):
-    """Busca conexión por PPPoE y devuelve (conn_id, nodo_actual)."""
     url = f"{ISPCUBE_BASEURL}/connections?pppoe={pppoe}"
     resp = _request("GET", url)
     data = resp.json()
@@ -98,9 +100,6 @@ def obtener_conexion(pppoe):
 
 
 def obtener_conexion_por_pppoe(pppoe_user):
-    """
-    Busca cliente por PPPoE y devuelve (conn_id, nodo_actual).
-    """
     url = f"{ISPCUBE_BASEURL}/connection?user={pppoe_user}"
     resp = _request("GET", url)
     cliente = resp.json()
@@ -117,10 +116,8 @@ def obtener_conexion_por_pppoe(pppoe_user):
 
 
 def obtener_todas_conexiones():
-    """
-    Devuelve lista de conexiones con datos básicos:
-    user (PPPoE), customer_id, id (conn_id), node_id, plan_id.
-    """
+    # Nota: Si conexiones también crece mucho, habrá que paginarla igual que clientes.
+    # Por ahora 7000 conexiones parece pasar el filtro de timeout, pero estamos al límite.
     url = f"{ISPCUBE_BASEURL}/connections/connections_list"
     resp = _request("GET", url)
     conexiones = resp.json()
@@ -143,9 +140,6 @@ def obtener_todas_conexiones():
 
 
 def obtener_planes():
-    """
-    Devuelve lista de planes con id, nombre, velocidad y descripción.
-    """
     url = f"{ISPCUBE_BASEURL}/plans/plans_list"
     resp = _request("GET", url)
     planes = resp.json()
@@ -165,16 +159,56 @@ def obtener_planes():
 
 def obtener_clientes():
     """
-    Devuelve lista completa de clientes desde ISPCube.
-    Incluye todos los campos que el endpoint expone.
+    Devuelve lista completa de clientes usando PAGINACIÓN para evitar Timeouts.
+    Baja de a 500 registros.
     """
     url = f"{ISPCUBE_BASEURL}/customers/customers_list"
-    resp = _request("GET", url)
-    data = resp.json()
+    all_customers = []
+    
+    # Configuración de paginación
+    LIMIT = 500
+    offset = 0
+    
+    # Feedback visual para consola
+    print(f"     ↳ [Paginación] Iniciando descarga de a {LIMIT} registros...")
+    
+    while True:
+        try:
+            # Pasamos los parámetros de paginación
+            # La mayoría de APIs de ISPCube/Laravel usan limit y offset
+            params = {
+                "limit": LIMIT,
+                "offset": offset
+            }
+            
+            resp = _request("GET", url, params=params)
+            batch = resp.json()
+            
+            if not isinstance(batch, list):
+                logger.error(f"Formato inesperado en bloque {offset}")
+                break
+                
+            count = len(batch)
+            if count == 0:
+                break # Fin de los datos
+            
+            all_customers.extend(batch)
+            
+            # Feedback en la misma línea para no ensuciar el log
+            sys.stdout.write(f"\r     ↳ [Paginación] Bajados: {len(all_customers)} clientes...")
+            sys.stdout.flush()
+            
+            # Si el bloque trajo menos del límite, significa que es el último
+            if count < LIMIT:
+                break
+            
+            # Avanzamos el offset para la siguiente página
+            offset += LIMIT
+            
+        except Exception as e:
+            print(f"\n❌ Error bajando bloque offset={offset}: {e}")
+            # Si falla un bloque, devolvemos lo que tenemos hasta ahora para no perder todo
+            break
 
-    if not isinstance(data, list):
-        logger.error("Respuesta inesperada de ISPCube al listar clientes")
-        return []
-
-    return data
-
+    print(f" ✅ Total: {len(all_customers)}")
+    return all_customers
