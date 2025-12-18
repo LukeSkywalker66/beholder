@@ -8,7 +8,7 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
 
-    # ------------------ INSERTS (Mantenemos los simples) ------------------
+    # ------------------ INSERTS ------------------
     def insert_subscriber(self, unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode):
         self.cursor.execute("INSERT OR REPLACE INTO subscribers (unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, pppoe_username, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (unique_external_id, sn, olt_name, olt_id, board, port, onu, onu_type_id, name, mode))
     
@@ -32,7 +32,7 @@ class Database:
         self.cursor.execute("INSERT INTO clientes_telefonos (customer_id, number) VALUES (?, ?)", (customer_id, number))
 
     def insert_secret(self, secret_data: dict, router_ip: str):
-        # Insert simple, sin complicaciones
+        # AHORA SÍ: PK Compuesta para no perder usuarios reales en distintos nodos
         self.cursor.execute("""
             INSERT OR REPLACE INTO ppp_secrets (name, password, profile, service, last_caller_id, comment, router_ip, last_logged_out)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -53,12 +53,11 @@ class Database:
     def log_sync_status(self, fuente: str, estado: str, detalle: str = ""):
         self.cursor.execute("INSERT INTO sync_status (fuente, ultima_actualizacion, estado, detalle) VALUES (?, ?, ?, ?)", (fuente, datetime.now(), estado, detalle)); self.commit()
 
-    # ------------------ BÚSQUEDA OPTIMIZADA (UNION) ------------------
+    # ------------------ BÚSQUEDA VELOZ (UNION) ------------------
     def search_client(self, query_str: str) -> list:
         term = f"%{query_str}%"
         
-        # Esta query ejecuta 3 búsquedas indexadas por separado y une los resultados.
-        # Es muchísimo más rápida que hacer un JOIN de todo con OR.
+        # Usamos UNION ALL para velocidad máxima, evitando JOINs complejos
         sql = """
         -- 1. ISPCube
         SELECT 
@@ -74,7 +73,7 @@ class Database:
 
         UNION ALL
 
-        -- 2. Mikrotik (Secrets)
+        -- 2. Mikrotik (Puede traer duplicados si el user está en 2 routers, se filtra en Python)
         SELECT 
             name as pppoe,
             'No Vinculado' as nombre,
@@ -100,41 +99,36 @@ class Database:
         LIMIT 50
         """
         
-        # Argumentos: 3 para ISPCube, 2 para Mikrotik, 2 para SmartOLT
         args = (term, term, term, term, term, term, term)
         self.cursor.execute(sql, args)
         rows = self.cursor.fetchall()
 
-        # DEDUPLICACIÓN INTELIGENTE EN PYTHON
-        # Si un cliente está en ISPCube y en Mikrotik, el UNION ALL trae los dos.
-        # Usamos un diccionario para quedarnos con la "mejor" versión (ISPCube > Mikrotik > SmartOLT).
         results_map = {}
         
         for r in rows:
             pppoe = r['pppoe']
             origen = r['origen']
             
-            # Si ya existe y el que tenemos es 'ispcube', no lo pisamos con uno técnico
+            # Prioridad: ISPCube > Mikrotik > SmartOLT
             if pppoe in results_map:
-                if results_map[pppoe]['origen'] == 'ispcube':
+                existing = results_map[pppoe]
+                if existing['origen'] == 'ispcube':
                     continue # Ya tenemos la mejor data
                 
-                # Si el nuevo es ispcube, pisa al viejo
                 if origen == 'ispcube':
-                    results_map[pppoe] = dict(r)
-                
-                # Si tenemos uno técnico y viene otro técnico, podemos enriquecer (opcional), 
-                # pero por velocidad simplemente dejamos el primero o priorizamos MK sobre OLT
-                elif origen == 'mikrotik' and results_map[pppoe]['origen'] == 'smartolt':
-                    results_map[pppoe] = dict(r)
+                    results_map[pppoe] = dict(r) # ISPCube pisa a técnico
+                elif origen == 'mikrotik' and existing['origen'] == 'smartolt':
+                    results_map[pppoe] = dict(r) # MK pisa a OLT
+                # Si viene otro Mikrotik (duplicado en otro router), por ahora lo ignoramos en la búsqueda
+                # para no llenar la lista de clones. El diagnóstico resolverá cuál usar.
             else:
                 results_map[pppoe] = dict(r)
 
         return list(results_map.values())
 
-    # ------------------ DIAGNÓSTICO DIRECTO ------------------
+    # ------------------ DIAGNÓSTICO (Soporte Multi-Secret) ------------------
     def get_diagnosis(self, pppoe_user: str) -> dict:
-        # 1. Buscar en ISPCube (Query simple y rápida)
+        # 1. Datos ISPCube
         sql_admin = """
         SELECT s.unique_external_id, s.pppoe_username, s.sn AS onu_sn, s.mode as Modo, s.olt_name AS OLT,
                 n.name AS nodo_nombre, n.ip_address AS nodo_ip, n.puerto AS puerto, p.name AS plan,
@@ -149,24 +143,39 @@ class Database:
         self.cursor.execute(sql_admin, (pppoe_user,))
         row_admin = self.cursor.fetchone()
 
-        # 2. Buscar datos técnicos (Secret) por separado
+        # 2. Datos Técnicos: Traemos TODOS los secrets de este usuario
         self.cursor.execute("SELECT router_ip, last_caller_id, comment FROM ppp_secrets WHERE name = ?", (pppoe_user,))
-        secret_row = self.cursor.fetchone()
+        secrets = self.cursor.fetchall()
+
+        # Selección del Secret Correcto
+        selected_secret = None
+        if row_admin and row_admin['nodo_ip']:
+            # Si ISPCube dice Nodo A, buscamos el secret del Nodo A
+            target_ip = row_admin['nodo_ip']
+            for sec in secrets:
+                if sec['router_ip'] == target_ip:
+                    selected_secret = sec
+                    break
+        
+        # Fallback: Si no coincidió o no hay ISPCube, usamos el primero disponible
+        if not selected_secret and secrets:
+            selected_secret = secrets[0]
 
         diagnosis = {}
 
         if row_admin:
             diagnosis = dict(row_admin)
-            if secret_row:
-                diagnosis['mac'] = secret_row['last_caller_id']
-                # Corrección de IP: Si Mikrotik dice otra cosa, es la verdad
-                real_ip = secret_row['router_ip']
+            if selected_secret:
+                diagnosis['mac'] = selected_secret['last_caller_id']
+                # Si la IP real difiere de la esperada y no encontramos coincidencia exacta, avisamos
+                # O si estamos en modo fallback (cliente movido sin avisar al sistema)
+                real_ip = selected_secret['router_ip']
                 if real_ip and real_ip != diagnosis['nodo_ip']:
-                    self.cursor.execute("SELECT name, puerto FROM nodes WHERE ip_address = ?", (real_ip,))
+                    self.cursor.execute("SELECT name, ip_address, puerto FROM nodes WHERE ip_address = ?", (real_ip,))
                     real_node = self.cursor.fetchone()
                     if real_node:
                         diagnosis['nodo_nombre'] = real_node['name']
-                        diagnosis['nodo_ip'] = real_ip
+                        diagnosis['nodo_ip'] = real_node['ip_address']
                         diagnosis['puerto'] = real_node['puerto']
                     else:
                         diagnosis['nodo_nombre'] = f"Router {real_ip}"
@@ -174,11 +183,11 @@ class Database:
                         diagnosis['puerto'] = None
             return diagnosis
 
-        # 3. Fallback: No Vinculado
+        # 3. Caso No Vinculado
         self.cursor.execute("SELECT * FROM subscribers WHERE pppoe_username = ?", (pppoe_user,))
         sub_row = self.cursor.fetchone()
 
-        if not sub_row and not secret_row:
+        if not sub_row and not selected_secret:
              return {"error": f"Cliente {pppoe_user} no encontrado."}
 
         diagnosis = {
@@ -190,11 +199,12 @@ class Database:
         if sub_row:
              diagnosis.update({"unique_external_id": sub_row['unique_external_id'], "onu_sn": sub_row['sn'], "OLT": sub_row['olt_name'], "Modo": sub_row['mode']})
         
-        if secret_row:
-            diagnosis['mac'] = secret_row['last_caller_id']
-            if secret_row['comment']: diagnosis['cliente_nombre'] += f" ({secret_row['comment']})"
+        if selected_secret:
+            diagnosis['mac'] = selected_secret['last_caller_id']
+            if selected_secret['comment']: 
+                diagnosis['cliente_nombre'] += f" ({selected_secret['comment']})"
             
-            real_ip = secret_row['router_ip']
+            real_ip = selected_secret['router_ip']
             if real_ip:
                 self.cursor.execute("SELECT name, ip_address, puerto FROM nodes WHERE ip_address = ?", (real_ip,))
                 node_row = self.cursor.fetchone()
@@ -208,11 +218,12 @@ class Database:
     def commit(self): self.conn.commit()
     def close(self): self.conn.close()
 
-# ------------------ INIT DB (Con Índices) ------------------
+# ------------------ INIT DB (Estructura Final) ------------------
 def init_db():
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
-    # Tablas
+    
+    # Tablas Base
     cursor.execute("CREATE TABLE IF NOT EXISTS subscribers (unique_external_id TEXT PRIMARY KEY, pppoe_username TEXT, sn TEXT, olt_name TEXT, olt_id TEXT, board TEXT, port TEXT, onu TEXT, onu_type_id TEXT, mode TEXT, node_id TEXT, connection_id TEXT, vlan TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS nodes (node_id TEXT PRIMARY KEY, name TEXT, ip_address TEXT, puerto TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS plans (plan_id TEXT PRIMARY KEY, name TEXT, speed TEXT, description TEXT)")
@@ -222,21 +233,22 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS clientes_telefonos (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, number TEXT NOT NULL, FOREIGN KEY (customer_id) REFERENCES clientes(id))")
     cursor.execute("CREATE TABLE IF NOT EXISTS sync_status (id INTEGER PRIMARY KEY AUTOINCREMENT, fuente TEXT NOT NULL, ultima_actualizacion TEXT NOT NULL, estado TEXT NOT NULL, detalle TEXT)")
     
-    # Tabla Secrets simple
+    # TABLA SECRETS CORREGIDA (PK COMPUESTA)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ppp_secrets (
-            name TEXT PRIMARY KEY,
+            name TEXT,
             password TEXT,
             profile TEXT,
             service TEXT,
             last_caller_id TEXT,
             comment TEXT,
             router_ip TEXT,
-            last_logged_out TEXT
+            last_logged_out TEXT,
+            PRIMARY KEY (name, router_ip)
         )
     """)
 
-    # ÍNDICES VITALES
+    # ÍNDICES (CRÍTICOS)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_connections_pppoe ON connections(pppoe_username)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_subscribers_pppoe ON subscribers(pppoe_username)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clientes_name ON clientes(name)")
