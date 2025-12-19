@@ -212,3 +212,47 @@ def obtener_clientes():
 
     print(f" ✅ Total: {len(all_customers)}")
     return all_customers
+
+# ... (imports existentes: requests, config, etc.) ...
+
+def obtener_conexiones_paginadas():
+    """Generador que devuelve conexiones página por página."""
+    headers = {
+        "Authorization": f"Bearer {_get_token()}",
+        "api-key": ISPCUBE_APIKEY,
+        "client-id": ISPCUBE_CLIENTID,
+        "login-type": "api",
+        "Accept": "application/json",
+        "username": ISPCUBE_USER
+    }
+    
+    page = 1
+    while True:
+        try:
+            url = f"{ISPCUBE_BASEURL}/connections?page={page}"
+            print(f"      ⭮ Bajando conexiones pág {page}...", end="\r", flush=True)
+            
+            resp = requests.get(url, headers=headers, timeout=20)
+            if resp.status_code == 401:
+                # Token vencido, renovar rapido
+                headers["Authorization"] = f"Bearer {_get_token(force_refresh=True)}"
+                resp = requests.get(url, headers=headers, timeout=20)
+
+            if resp.status_code != 200:
+                print(f"      ⚠️ Error {resp.status_code} pág {page}")
+                break
+                
+            data = resp.json()
+            items = data.get('data', []) if isinstance(data, dict) and 'data' in data else data
+            
+            if not items: break
+            yield items
+            
+            if isinstance(data, dict) and 'last_page' in data:
+                if page >= data['last_page']: break
+            if len(items) < 15: break
+                
+            page += 1
+        except Exception as e:
+            print(f"      ❌ Error pág {page}: {e}")
+            break
