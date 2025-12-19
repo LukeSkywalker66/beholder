@@ -4,8 +4,6 @@ from app import config
 from app.utils.safe_call import safe_call
 import time
 
-# --- FUNCIONES DE SINCRONIZACIÓN ---
-
 def sync_nodes(db):
     print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
     try:
@@ -24,24 +22,19 @@ def sync_nodes(db):
         config.logger.error(f"[SYNC] Error Nodos: {e}")
 
 def sync_secrets(db):
-    # Lógica detallada para Mikrotik (LA QUE TE GUSTA)
     nodes = db.get_nodes_for_sync()
     if not nodes:
         config.logger.warning("[SYNC] No hay nodos para sync secrets.")
-        print("   ↳ ⚠️ No hay nodos para consultar Mikrotik.")
         return
 
     db.cursor.execute("DELETE FROM ppp_secrets")
-    
     print(f"   ↳ Consultando {len(nodes)} Mikrotiks:")
     total_secrets = 0
-    count_ok = 0
 
     for node in nodes:
         ip = node["ip"]
         name = node["name"]
         port = node["port"] if node["port"] else config.MK_PORT
-        
         print(f"      > {name} ({ip})...", end=" ", flush=True)
         
         try:
@@ -51,7 +44,6 @@ def sync_secrets(db):
                     db.insert_secret(s, ip)
                 count = len(secrets)
                 total_secrets += count
-                count_ok += 1
                 print(f"✅ ({count})")
             else:
                 print("⚠️ Sin respuesta")
@@ -60,7 +52,7 @@ def sync_secrets(db):
             config.logger.error(f"[SYNC] Error en router {ip}: {e}")
     
     db.commit()
-    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados de {count_ok}/{len(nodes)} nodos.")
+    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados.")
     print(f"   ↳ Resumen: {total_secrets} secrets guardados.")
 
 def sync_onus(db):
@@ -71,22 +63,14 @@ def sync_onus(db):
             db.cursor.execute("DELETE FROM subscribers")
             for onu in onus:
                 db.insert_subscriber(
-                    onu.get("unique_external_id"), 
-                    onu.get("sn"), 
-                    onu.get("olt_name"), 
-                    onu.get("olt_id"), 
-                    onu.get("board"), 
-                    onu.get("port"), 
-                    onu.get("onu"), 
-                    onu.get("onu_type_id"), 
-                    onu.get("name"), 
-                    onu.get("mode")
+                    onu.get("unique_external_id"), onu.get("sn"), onu.get("olt_name"), 
+                    onu.get("olt_id"), onu.get("board"), onu.get("port"), onu.get("onu"), 
+                    onu.get("onu_type_id"), onu.get("name"), onu.get("mode")
                 )
             db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
             config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
             print(f"✅ ({len(onus)} ONUs)")
         else:
-            db.log_sync_status("smartolt", "empty", "SmartOLT no devolvió datos")
             print("⚠️ Sin datos")
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -101,50 +85,35 @@ def sync_plans(db):
             for p in planes:
                 db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
             config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
-            db.log_sync_status("ispcube", "ok", f"{len(planes)} planes sincronizados")
             print(f"✅ ({len(planes)})")
         else: print("⚠️")
     except Exception as e: print(f"❌ {e}")
 
 def sync_connections(db):
-    # AQUI ESTA EL ARREGLO CLAVE: PAGINACIÓN
-    print("\n   ↳ [ISPCube] Bajando Conexiones (Por Lotes)...")
+    print("   ↳ [ISPCube] Bajando Conexiones (Lista Completa)...", end=" ", flush=True)
     try:
-        db.cursor.execute("DELETE FROM connections")
-        db.commit()
-        
-        total_count = 0
-        
-        # Usamos el generador nuevo de ispcube.py
-        for lote in ispcube.obtener_conexiones_paginadas():
-            for c in lote:
+        # VOLVEMOS AL MÉTODO CLÁSICO
+        conexiones = ispcube.obtener_todas_conexiones()
+        if conexiones:
+            db.cursor.execute("DELETE FROM connections")
+            for c in conexiones:
                 if not c.get("id") or not c.get("user"): continue
-                
-                direccion = c.get("direccion") or c.get("address")
-                
                 db.insert_connection(
-                    str(c.get("id")), 
-                    str(c.get("user")), 
-                    str(c.get("customer_id")), 
-                    str(c.get("node_id")), 
-                    str(c.get("plan_id")), 
-                    direccion
+                    str(c["id"]), str(c["user"]), str(c["customer_id"]), 
+                    str(c["node_id"]), str(c["plan_id"]), c.get("direccion")
                 )
-                total_count += 1
-            db.commit()
-            
-        print(f"      ✅ Total: {total_count} conexiones guardadas.")
-        config.logger.info(f"[SYNC] {total_count} conexiones sincronizadas.")
-        db.log_sync_status("ispcube", "ok", f"{total_count} conexiones sincronizadas")
-
+            config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
+            db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conexiones sincronizadas")
+            print(f"✅ ({len(conexiones)})")
+        else:
+            print("⚠️ Vacío")
     except Exception as e:
-        print(f"      ❌ Error crítico en conexiones: {e}")
+        print(f"❌ {e}")
         config.logger.error(f"[SYNC] Error Connections: {e}")
 
 def sync_clientes(db):
     print("   ↳ [ISPCube] Bajando Clientes...", end=" ", flush=True)
     try:
-        # Asumimos que obtener_clientes ya tiene paginación interna o funciona bien
         clientes = ispcube.obtener_clientes()
         if clientes:
             db.cursor.execute("DELETE FROM clientes")
@@ -152,8 +121,7 @@ def sync_clientes(db):
             db.cursor.execute("DELETE FROM clientes_telefonos")
 
             for c in clientes:
-                cliente_data = mapear_cliente(c)
-                db.insert_cliente(cliente_data)
+                db.insert_cliente(mapear_cliente(c))
                 insertar_contactos_relacionados(db, c)
 
             db.commit()
@@ -162,12 +130,10 @@ def sync_clientes(db):
             print(f"✅ ({len(clientes)})")
         else:
             print("⚠️ Vacío")
-            db.log_sync_status("ispcube", "empty", "Sin datos de clientes")
     except Exception as e:
         print(f"❌ {e}")
 
 # --- UTILIDADES ---
-
 def insertar_contactos_relacionados(db, json_cliente: dict):
     for email_obj in json_cliente.get("contact_emails", []):
         if email_obj.get("email"):
@@ -229,19 +195,17 @@ def mapear_cliente(json_cliente: dict) -> dict:
         "temporary": json_cliente.get("temporary"),
     }
 
-# --- MAIN ---
-
 def nightly_sync():
     init_db()
     db = Database()
     print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
     try:
-        sync_nodes(db)      # 1. Nodos primero (para tener IPs)
-        sync_secrets(db)    # 2. Secrets (ahora sí, por cada nodo)
-        sync_onus(db)       # 3. ONUs
-        sync_plans(db)      # 4. Planes
-        sync_connections(db)# 5. Conexiones (PAGINADO AHORA)
-        sync_clientes(db)   # 6. Clientes
+        sync_nodes(db)
+        sync_secrets(db)
+        sync_onus(db)
+        sync_plans(db)
+        sync_connections(db) # Vuelve a usar el método "todo de una vez"
+        sync_clientes(db)
         
         print("\n   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
         db.match_connections()

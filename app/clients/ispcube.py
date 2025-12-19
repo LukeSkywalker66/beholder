@@ -9,12 +9,9 @@ ISPCUBE_USER = config.ISPCUBE_USER
 ISPCUBE_PASSWORD = config.ISPCUBE_PASSWORD
 ISPCUBE_CLIENTID = config.ISPCUBE_CLIENTID
 
-# Cache interno del token
 _token_cache = None
 
-
 def _obtener_token():
-    """Solicita un nuevo token a ISPCube."""
     url = f"{ISPCUBE_BASEURL}/sanctum/token"
     payload = {"username": ISPCUBE_USER, "password": ISPCUBE_PASSWORD}
     headers = {
@@ -28,16 +25,13 @@ def _obtener_token():
     resp.raise_for_status()
     return resp.json()["token"]
 
-
 def _get_token(force_refresh=False):
-    """Devuelve un token válido, renovando si es necesario."""
     global _token_cache
     if force_refresh or _token_cache is None:
         _token_cache = _obtener_token()
     return _token_cache
 
 def _headers(token=None):
-    """Headers estándar para todas las llamadas."""
     return {
         "Authorization": f"Bearer {token or _get_token()}",
         "api-key": ISPCUBE_APIKEY,
@@ -47,21 +41,14 @@ def _headers(token=None):
         "username": ISPCUBE_USER
     }
 
-
 def _request(method, url, **kwargs):
-    """
-    Wrapper de requests que maneja expiración de token.
-    Si recibe 401, renueva token y reintenta una vez.
-    """
     token = _get_token()
     headers = kwargs.pop("headers", {})
     headers.update(_headers(token))
     
-    # IMPORTANTE: requests maneja 'params' automáticamente si se pasan en kwargs
     resp = requests.request(method, url, headers=headers, **kwargs)
     
     if resp.status_code == 401:
-        # Token expirado → renovar y reintentar
         logger.warning("Token expirado, renovando...")
         token = _get_token(force_refresh=True)
         headers.update(_headers(token))
@@ -73,7 +60,6 @@ def _request(method, url, **kwargs):
 # ------------------ Funciones públicas ------------------
 
 def obtener_nodos():
-    """Devuelve lista de nodos con id, name, ip."""
     url = f"{ISPCUBE_BASEURL}/nodes/nodes_list"
     resp = _request("GET", url)
     body = resp.json()
@@ -88,42 +74,18 @@ def obtener_nodos():
         })
     return nodos
 
-
-def obtener_conexion(pppoe):
-    url = f"{ISPCUBE_BASEURL}/connections?pppoe={pppoe}"
-    resp = _request("GET", url)
-    data = resp.json()
-    if data:
-        conn = data[0]
-        return conn["id"], conn.get("node_id")
-    logger.error(f"No se encontró conexión en ISPCube para {pppoe}")
-
-
-def obtener_conexion_por_pppoe(pppoe_user):
-    url = f"{ISPCUBE_BASEURL}/connection?user={pppoe_user}"
-    resp = _request("GET", url)
-    cliente = resp.json()
-
-    conexiones = cliente.get("connections", [])
-    if not conexiones:
-        logger.error(f"No se encontraron conexiones para PPPoE {pppoe_user}")
-
-    for conn in conexiones:
-        if conn.get("conntype") == "pppoe" and conn.get("user") == pppoe_user:
-            return conn["id"], conn.get("node_id")
-
-    logger.error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
-
-
 def obtener_todas_conexiones():
-    # Nota: Si conexiones también crece mucho, habrá que paginarla igual que clientes.
-    # Por ahora 7000 conexiones parece pasar el filtro de timeout, pero estamos al límite.
+    """
+    Devuelve lista de conexiones con datos básicos usando endpoint de lista completa.
+    """
     url = f"{ISPCUBE_BASEURL}/connections/connections_list"
-    resp = _request("GET", url)
+    # Timeout extendido por seguridad, pero lógica original
+    resp = _request("GET", url, timeout=60)
     conexiones = resp.json()
 
     if not isinstance(conexiones, list):
         logger.error("Respuesta inesperada de ISPCube al listar conexiones")
+        return []
 
     resultado = []
     for c in conexiones:
@@ -138,7 +100,6 @@ def obtener_todas_conexiones():
             })
     return resultado
 
-
 def obtener_planes():
     url = f"{ISPCUBE_BASEURL}/plans/plans_list"
     resp = _request("GET", url)
@@ -146,6 +107,7 @@ def obtener_planes():
 
     if not isinstance(planes, list):
         logger.error("Respuesta inesperada de ISPCube al listar planes")
+        return []
 
     resultado = []
     for p in planes:
@@ -159,100 +121,35 @@ def obtener_planes():
 
 def obtener_clientes():
     """
-    Devuelve lista completa de clientes usando PAGINACIÓN para evitar Timeouts.
-    Baja de a 500 registros.
+    Devuelve lista completa de clientes usando PAGINACIÓN (esto sí funciona bien).
     """
     url = f"{ISPCUBE_BASEURL}/customers/customers_list"
     all_customers = []
-    
-    # Configuración de paginación
     LIMIT = 500
     offset = 0
     
-    # Feedback visual para consola
-    print(f"     ↳ [Paginación] Iniciando descarga de a {LIMIT} registros...")
+    print(f"     ↳ [Paginación] Iniciando descarga de clientes...")
     
     while True:
         try:
-            # Pasamos los parámetros de paginación
-            # La mayoría de APIs de ISPCube/Laravel usan limit y offset
-            params = {
-                "limit": LIMIT,
-                "offset": offset
-            }
-            
+            params = {"limit": LIMIT, "offset": offset}
             resp = _request("GET", url, params=params)
             batch = resp.json()
             
-            if not isinstance(batch, list):
-                logger.error(f"Formato inesperado en bloque {offset}")
-                break
-                
-            count = len(batch)
-            if count == 0:
-                break # Fin de los datos
+            if not isinstance(batch, list) or len(batch) == 0:
+                break 
             
             all_customers.extend(batch)
-            
-            # Feedback en la misma línea para no ensuciar el log
             sys.stdout.write(f"\r     ↳ [Paginación] Bajados: {len(all_customers)} clientes...")
             sys.stdout.flush()
             
-            # Si el bloque trajo menos del límite, significa que es el último
-            if count < LIMIT:
+            if len(batch) < LIMIT:
                 break
             
-            # Avanzamos el offset para la siguiente página
             offset += LIMIT
-            
         except Exception as e:
             print(f"\n❌ Error bajando bloque offset={offset}: {e}")
-            # Si falla un bloque, devolvemos lo que tenemos hasta ahora para no perder todo
             break
 
     print(f" ✅ Total: {len(all_customers)}")
     return all_customers
-
-# ... (imports existentes: requests, config, etc.) ...
-
-def obtener_conexiones_paginadas():
-    """Generador que devuelve conexiones página por página."""
-    headers = {
-        "Authorization": f"Bearer {_get_token()}",
-        "api-key": ISPCUBE_APIKEY,
-        "client-id": ISPCUBE_CLIENTID,
-        "login-type": "api",
-        "Accept": "application/json",
-        "username": ISPCUBE_USER
-    }
-    
-    page = 1
-    while True:
-        try:
-            url = f"{ISPCUBE_BASEURL}/connections?page={page}"
-            print(f"      ⭮ Bajando conexiones pág {page}...", end="\r", flush=True)
-            
-            resp = requests.get(url, headers=headers, timeout=20)
-            if resp.status_code == 401:
-                # Token vencido, renovar rapido
-                headers["Authorization"] = f"Bearer {_get_token(force_refresh=True)}"
-                resp = requests.get(url, headers=headers, timeout=20)
-
-            if resp.status_code != 200:
-                print(f"      ⚠️ Error {resp.status_code} pág {page}")
-                break
-                
-            data = resp.json()
-            items = data.get('data', []) if isinstance(data, dict) and 'data' in data else data
-            
-            if not items: break
-            yield items
-            
-            if isinstance(data, dict) and 'last_page' in data:
-                if page >= data['last_page']: break
-            if len(items) < 15: break
-                
-            page += 1
-        except Exception as e:
-            print(f"      ❌ Error pág {page}: {e}")
-            break
