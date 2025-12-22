@@ -5,7 +5,7 @@ GET http://127.0.0.1:8088/health
 GET http://127.0.0.1:8500/health
 x-api-key: supersecreta123
 ### Buscar suscriptor inexistente (debe dar 404)
-GET http://localhost:8500/subscribers/aamachuca
+GET http://localhost:8500/live/usuarioprueba
 x-api-key: Zo9fUbuGS5QhJUi8k4zvydAOrHBcBsZx9vz67Woy4Bk9PVSql1rjycpoI2yrajd8
 ### Buscar suscriptor de prueba (debe dar 200)
 GET http://127.0.0.1:8500/diagnosis/acastro
@@ -51,5 +51,15 @@ x-api-key: {{apikey}}
 ### 7. DIAGNÓSTICO: Cliente Huérfano (Solo Técnico)
 # Un usuario que solo existe en el Mikrotik/OLT.
 # Debería traer datos de señal/ONU aunque diga "Cliente no encontrado" en datos comerciales.
+
+GET {{host}}/live/usuarioprueba
+x-api-key: {{apikey}}
+
+# Un usuario que existe en ISPCube.
+
+
+x-api-key: {{apikey}}
+
+
 GET {{host}}/diagnosis/usuario_solo_tecnico
 x-api-key: {{apikey}}

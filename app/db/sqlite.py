@@ -118,7 +118,27 @@ class Database:
         clean_olt = [r for r in rows_olt if r['pppoe'] not in pppoes_encontrados]
 
         return rows_isp + clean_mk + clean_olt
-
+    #Consultar nodo por pppoe
+    # 
+    def get_router_for_pppoe(self, pppoe_user: str):
+        """
+        Busca en la DB local a qué nodo pertenece el usuario y devuelve IP y Puerto.
+        Retorna: (ip, port) o None
+        """
+        query = """
+        SELECT n.ip_address, n.puerto
+        FROM connections c
+        JOIN nodes n ON c.node_id = n.node_id
+        WHERE c.pppoe_username = ?
+        LIMIT 1
+        """
+        self.cursor.execute(query, (pppoe_user,))
+        row = self.cursor.fetchone()
+        
+        if row:
+            return row[0], row[1]
+        return None
+    
     # ------------------ DIAGNÓSTICO ------------------
     def get_diagnosis(self, pppoe_user: str) -> dict:
         # 1. Datos ISPCube

@@ -1,12 +1,10 @@
 # Requisitos del proyecto Beholder
-RouterOS-api==0.21.0
 
 # Framework web
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 
 # Base de datos
-
 
 # Cliente Mikrotik
 RouterOS-api==0.21.0

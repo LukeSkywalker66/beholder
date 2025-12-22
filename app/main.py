@@ -5,6 +5,7 @@ from app.services.diagnostico import consultar_diagnostico
 from app.security import get_api_key
 from app.db.sqlite import Database # Importación necesaria
 from app.config import logger
+from app.clients import mikrotik
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
@@ -67,3 +68,51 @@ def search_clients(q: str):
 @app.get("/")
 def read_root(api_key: str = Depends(get_api_key)):
     return {"status": "ok", "service": "Beholder API"}
+
+@app.get("/live/{pppoe_user}")
+def live_traffic(pppoe_user: str):
+    """
+    Obtiene el consumo en tiempo real resolviendo internamente 
+    en qué nodo está el cliente.
+    """
+    db = Database()
+    try:
+        # 1. Buscamos la IP del router en nuestra DB local
+        router_data = db.get_router_for_pppoe(pppoe_user)
+        
+        if not router_data:
+            # Si no está en la tabla connections, no sabemos a qué router preguntarle
+            return {
+                "status": "error", 
+                "detail": "Cliente no vinculado o no encontrado en base de datos local."
+            }
+            
+        router_ip, router_port = router_data
+        
+        # Usamos puerto default si la DB lo tiene null/vacío
+        if not router_port:
+            router_port = config.MK_PORT
+        
+        # 2. Consultamos al Mikrotik
+        trafico = mikrotik.obtener_trafico_en_vivo(router_ip, pppoe_user, int(router_port))
+        
+        if "error" in trafico:
+             return {"status": "error", "detail": trafico["error"]}
+             
+        # 3. Formateamos respuesta
+        rx_mbps = round(int(trafico["rx"]) / 1000000, 2)
+        tx_mbps = round(int(trafico["tx"]) / 1000000, 2)
+        
+        return {
+            "status": "ok",
+            "router_ip": router_ip, # Dato útil para debug, opcional
+            "download_mbps": rx_mbps,
+            "upload_mbps": tx_mbps,
+            "raw": trafico
+        }
+        
+    except Exception as e:
+        config.logger.error(f"Fallo endpoint live traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

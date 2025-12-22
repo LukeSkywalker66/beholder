@@ -119,93 +119,307 @@ ARCHIVO: notas.md
 ]
 
 ==================================================
-ARCHIVO: README.md
+ARCHIVO: README-esp.md
 ==================================================
-# Beholder
+👁️ Beholder
+Herramienta Centralizada de Diagnóstico y Triage para ISP
 
-Beholder es un servicio de diagnóstico centralizado para ISP.  
-Su objetivo es unificar consultas técnicas a SmartOLT, Mikrotik y GenieACS, resolviendo diagnósticos de clientes a partir de su usuario PPPoE.
+📖 Descripción General
+Beholder es el backend de diagnóstico unificado diseñado para 2F Internet. Su función principal es agregar datos técnicos de múltiples sistemas de gestión del ISP (SmartOLT, ISPCube, Mikrotik) para generar un reporte de estado instantáneo de suscriptores de fibra óptica e inalámbricos.
 
-## ✨ Características
-- API HTTP basada en FastAPI.
-- Endpoint `/diagnostico?pppoeUser=...` que devuelve panorama técnico.
-- Sincronización diaria de suscriptores desde SmartOLT.
-- Base local (SQLite/Redis) para lookups rápidos.
-- Seguridad con API key y rate limiting.
-- Logs estructurados con Loguru.
+Expone una interfaz FastAPI que es consumida por el frontend o chatbots para determinar rápidamente si una interrupción del servicio requiere el despacho físico de un técnico o si puede resolverse de forma remota.
 
-## 📂 Estructura del proyecto
+✨ Características Principales
+API Unificada: Un único endpoint /diagnosis/{pppoe_user} devuelve una visión de 360° del cliente.
 
-beholder
- ├─ readme.md
- ├─ requirements.txt
- ├─ test.http
- ├─ app/
- │   ├─ __init__.py
- │   ├─ config.py
- │   ├─ main.py
- │   └─ nightly.py
- ├─ config/
- │   └─ .env
- ├─ data/
- │   └─ diag.db
- └─ services/
-     ├─ __init__.py
-     ├─ ispcube.py
-     ├─ mikrotik.py
-     └─ smartolt.py
+Integración Multi-Vendor: Conecta simultáneamente con SmartOLT (Fibra), ISPCube (CRM/Facturación) y Mikrotik (Red).
 
+Alto Rendimiento: Utiliza SQLite como caché local para búsquedas instantáneas, evitando la lentitud de las APIs externas durante la atención al cliente.
 
+Sincronización Nocturna: Tareas automatizadas (app.jobs.sync) mantienen la base local actualizada con los últimos datos de suscriptores.
+
+Seguridad: Protegido mediante autenticación por API Key y limitación de tasa (rate limiting).
+
+📂 Estructura del Proyecto
+Plaintext
 
 beholder/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI app principal
-│   ├── config.py        # carga de variables .env
-│   ├── security.py      # API key + rate limiting
-│   ├── models.py        # esquemas Pydantic
-│   ├── services/        # lógica de diagnóstico
-│   │   └── diagnostico.py
-│   ├── clients/         # conectores a APIs externas
-│   │   ├── smartolt.py
+│   ├── main.py          # Punto de entrada de FastAPI
+│   ├── config.py        # Carga de variables de entorno y Logger
+│   ├── security.py      # Middleware de API Key
+│   ├── clients/         # Adaptadores de APIs externas
+│   │   ├── ispcube.py
 │   │   ├── mikrotik.py
-│   │   └── genieacs.py
-│   ├── db/              # acceso a base local
-│   │   └── sqlite.py
-│   └── jobs/            # tareas programadas
-│       └── sync_smartolt.py
+│   │   └── smartolt.py
+│   ├── db/              # Capa de acceso a datos
+│   │   └── sqlite.py    # Operaciones CRUD en SQLite
+│   ├── jobs/            # Tareas en segundo plano
+│   │   ├── sync.py      # Lógica principal de sincronización
+│   │   └── debug_ispcube.py
+│   ├── services/        # Lógica de negocio
+│   │   └── diagnostico.py
+│   └── utils/
+│       └── safe_call.py
 ├── config/
-│   └── .env.example     # variables de entorno
-├── tests/
-│   └── test_api.py      # pruebas unitarias
-├── requirements.txt
-├── README.md
-└── .gitignore
+│   └── .env             # Variables de entorno (Ignorado por Git)
+├── data/
+│   ├── diag.db          # Archivo de base de datos local
+│   └── logs/            # Logs de la aplicación
+├── docs/                # Documentación del proyecto y ADRs
+├── requirements.txt     # Dependencias de Python
+└── README.md
+🚀 Guía de Inicio Rápido
+1. Requisitos Previos
+Python 3.10 o superior.
 
-## 🚀 Uso rápido
+Entorno virtual (recomendado).
 
-Levantar el servicio en modo desarrollo:
+2. Instalación
+Bash
 
-```bash
-uvicorn app.main:app --reload --port 8088
+# Clonar el repositorio
+git clone <url-de-tu-repo>
+cd beholder
 
-curl -H "x-api-key: your-key" "http://127.0.0.1:8088/diagnostico?pppoeUser=usuarioprueba"
+# Crear entorno virtual
+python -m venv venv
+
+# Activar entorno virtual
+# En Windows:
+.\venv\Scripts\activate
+# En Linux/Mac:
+source venv/bin/activate
+
+# Instalar dependencias
+pip install -r requirements.txt
+3. Configuración
+Creá un archivo .env en la carpeta config/. Podés usar el siguiente ejemplo basado en app/config.py:
+
+Ini, TOML
+
+# config/.env
+
+# General
+API_KEY=tu_clave_secreta_aqui
+DB_PATH=data/diag.db
+
+# SmartOLT
+SMARTOLT_BASEURL=https://tu-instancia-smartolt.com/api
+SMARTOLT_TOKEN=tu_token_smartolt
+
+# Mikrotik (Gateway por Defecto)
+MK_HOST=192.168.1.1
+MK_USER=admin
+MK_PASS=password_admin
+MK_PORT=8728
+
+# ISPCube
+ISPCUBE_BASEURL=https://api.ispcube.com
+ISPCUBE_APIKEY=tu_apikey_ispcube
+ISPCUBE_USER=tu_usuario
+ISPCUBE_PASSWORD=tu_password
+ISPCUBE_CLIENTID=tu_client_id
+4. Ejecución de la Aplicación
+Opción A: Correr el Servidor API (Desarrollo) Esto inicia el backend en el puerto 8500 (puerto por defecto en producción).
+
+Bash
+
+uvicorn app.main:app --reload --port 8500
+Podés verificar el estado en: http://localhost:8500/health
+
+Opción B: Correr la Sincronización Para disparar manualmente el proceso nocturno (descarga de clientes, ONUs, etc.):
+
+Bash
+
+# Ejecutar como módulo desde la raíz del proyecto
+python -m app.jobs.sync
+📡 Ejemplos de Uso de la API
+Obtener Diagnóstico de Cliente
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/diagnosis/juan_perez_pppoe" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+Buscar Cliente (Nuevo)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/search?q=Juan%20Perez" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+🛠 Despliegue (Producción)
+El proyecto está configurado para correr vía systemd en Debian.
+
+Servicio: /etc/systemd/system/beholder.service
+
+Logs: journalctl -u beholder.service -f
+
+Actualización: Hacer push a la rama de producción dispara el hook automático:
+
+Bash
+
+git push production main
+
+==================================================
+ARCHIVO: Readme.txt
+==================================================
+👁️ Beholder
+Centralized ISP Diagnostic & Triage Tool
+
+📖 Overview
+Beholder is a unified diagnostic backend designed for 2F Internet. It aggregates technical data from multiple ISP management systems (SmartOLT, ISPCube, Mikrotik) to provide a single, instantaneous status report for fiber and wireless subscribers.
+
+It exposes a FastAPI interface consumed by the frontend or chatbots to determine if a service interruption requires a physical technician dispatch or can be resolved remotely.
+
+✨ Key Features
+
+Unified API: Single endpoint /diagnosis/{pppoe_user} returns a 360° view of the client.
 
 
-http://127.0.0.1:8088/health
+
+Multi-Vendor Integration: Connects simultaneously to SmartOLT (Fiber), ISPCube (CRM/Billing), and Mikrotik (Network).
+
+
+High Performance: Uses SQLite as a local cache for instant lookups, avoiding slow external API calls during customer interaction.
+
+
+Nightly Synchronization: Automated jobs (app.jobs.sync) keep the local cache updated with the latest subscriber data.
+
+
+Security: Protected via API Key authentication and rate limiting.
+
+📂 Project Structure
+Plaintext
+
+beholder/
+├── app/
+│   ├── __init__.py
+│   ├── main.py          # FastAPI Entry Point
+│   ├── config.py        # Env var loader & Logger config
+│   ├── security.py      # API Key Middleware
+│   ├── clients/         # External API Adapters
+│   │   ├── ispcube.py
+│   │   ├── mikrotik.py
+│   │   └── smartolt.py
+│   ├── db/              # Database Access Layer
+│   │   └── sqlite.py    # SQLite CRUD operations
+│   ├── jobs/            # Background Tasks
+│   │   ├── sync.py      # Main synchronization logic
+│   │   └── debug_ispcube.py
+│   ├── services/        # Business Logic
+│   │   └── diagnostico.py
+│   └── utils/
+│       └── safe_call.py
+├── config/
+│   └── .env             # Environment variables (GitIgnored)
+├── data/
+│   ├── diag.db          # Local Database File
+│   └── logs/            # App logs
+├── docs/                # Project Documentation & ADRs
+├── requirements.txt     # Python Dependencies
+└── README.md
+🚀 Getting Started
+1. Prerequisites
+Python 3.10+
+
+Virtual Environment (recommended)
+
+2. Installation
+Bash
+
+# Clone the repository
+git clone <your-repo-url>
+cd beholder
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/Mac:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+3. Configuration
+Create a .env file in the config/ directory. You can copy the example or use the following template based on app/config.py:
+
+Ini, TOML
+
+# config/.env
+
+# General
+API_KEY=your_secret_api_key_here
+DB_PATH=data/diag.db
+
+# SmartOLT
+SMARTOLT_BASEURL=https://your-smartolt-instance.com/api
+SMARTOLT_TOKEN=your_smartolt_token
+
+# Mikrotik (Gateway Default)
+MK_HOST=192.168.1.1
+MK_USER=admin
+MK_PASS=admin_password
+MK_PORT=8728
+
+# ISPCube
+ISPCUBE_BASEURL=https://api.ispcube.com
+ISPCUBE_APIKEY=your_ispcube_apikey
+ISPCUBE_USER=your_user
+ISPCUBE_PASSWORD=your_password
+ISPCUBE_CLIENTID=your_client_id
+4. Running the Application
+Option A: Run the API Server (Development) This starts the backend at port 8500 (default for production).
+
+Bash
+
+uvicorn app.main:app --reload --port 8500
+Access the health check at: http://localhost:8500/health
+
+Option B: Run the Synchronization Job To manually trigger the nightly sync process (download customers, ONUs, etc.):
+
+Bash
+
+# Run as a module from the root directory
+python -m app.jobs.sync
+📡 API Usage Example
+Get Client Diagnosis
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/diagnosis/john_doe_pppoe" \
+     -H "x-api-key: your_secret_api_key_here"
+Search Client (New)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/search?q=Juan%20Perez" \
+     -H "x-api-key: your_secret_api_key_here"
+🛠 Deployment (Production)
+The project is configured to run via systemd on Debian.
+
+Service Path: /etc/systemd/system/beholder.service
+
+Logs: journalctl -u beholder.service -f
+
+Update: Push to the production branch triggers the git hook:
+
+Bash
+
+git push production main
 
 ==================================================
 ARCHIVO: requirements.txt
 ==================================================
 # Requisitos del proyecto Beholder
-RouterOS-api==0.21.0
 
 # Framework web
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 
 # Base de datos
-
 
 # Cliente Mikrotik
 RouterOS-api==0.21.0
@@ -3906,6 +4120,7 @@ from app.services.diagnostico import consultar_diagnostico
 from app.security import get_api_key
 from app.db.sqlite import Database # Importación necesaria
 from app.config import logger
+from app.clients import mikrotik
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
@@ -3969,6 +4184,38 @@ def search_clients(q: str):
 def read_root(api_key: str = Depends(get_api_key)):
     return {"status": "ok", "service": "Beholder API"}
 
+@app.get("/live/{pppoe_user}")
+def live_traffic(pppoe_user: str, router_ip: str, port: int = config.MK_PORT):
+    """
+    Devuelve el consumo en tiempo real.
+    Requiere saber la IP del router donde está el cliente.
+    """
+    if not router_ip:
+        raise HTTPException(status_code=400, detail="Falta router_ip")
+        
+    try:
+        # Llamamos a la función que acabamos de crear
+        trafico = mikrotik.obtener_trafico_en_vivo(router_ip, pppoe_user, port)
+        
+        if "error" in trafico:
+             # No lanzamos error 500 para no romper el frontend, devolvemos el error controlado
+             return {"status": "error", "detail": trafico["error"]}
+             
+        # Convertimos a Mbps para que sea más fácil leer (opcional, o lo hace el front)
+        rx_mbps = round(int(trafico["rx"]) / 1000000, 2)
+        tx_mbps = round(int(trafico["tx"]) / 1000000, 2)
+        
+        return {
+            "status": "ok",
+            "download_mbps": rx_mbps,
+            "upload_mbps": tx_mbps,
+            "raw": trafico
+        }
+        
+    except Exception as e:
+        logger.error(f"Fallo endpoint live traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 ==================================================
 ARCHIVO: app\security.py
 ==================================================
@@ -4001,12 +4248,9 @@ ISPCUBE_USER = config.ISPCUBE_USER
 ISPCUBE_PASSWORD = config.ISPCUBE_PASSWORD
 ISPCUBE_CLIENTID = config.ISPCUBE_CLIENTID
 
-# Cache interno del token
 _token_cache = None
 
-
 def _obtener_token():
-    """Solicita un nuevo token a ISPCube."""
     url = f"{ISPCUBE_BASEURL}/sanctum/token"
     payload = {"username": ISPCUBE_USER, "password": ISPCUBE_PASSWORD}
     headers = {
@@ -4020,16 +4264,13 @@ def _obtener_token():
     resp.raise_for_status()
     return resp.json()["token"]
 
-
 def _get_token(force_refresh=False):
-    """Devuelve un token válido, renovando si es necesario."""
     global _token_cache
     if force_refresh or _token_cache is None:
         _token_cache = _obtener_token()
     return _token_cache
 
 def _headers(token=None):
-    """Headers estándar para todas las llamadas."""
     return {
         "Authorization": f"Bearer {token or _get_token()}",
         "api-key": ISPCUBE_APIKEY,
@@ -4039,21 +4280,14 @@ def _headers(token=None):
         "username": ISPCUBE_USER
     }
 
-
 def _request(method, url, **kwargs):
-    """
-    Wrapper de requests que maneja expiración de token.
-    Si recibe 401, renueva token y reintenta una vez.
-    """
     token = _get_token()
     headers = kwargs.pop("headers", {})
     headers.update(_headers(token))
     
-    # IMPORTANTE: requests maneja 'params' automáticamente si se pasan en kwargs
     resp = requests.request(method, url, headers=headers, **kwargs)
     
     if resp.status_code == 401:
-        # Token expirado → renovar y reintentar
         logger.warning("Token expirado, renovando...")
         token = _get_token(force_refresh=True)
         headers.update(_headers(token))
@@ -4065,7 +4299,6 @@ def _request(method, url, **kwargs):
 # ------------------ Funciones públicas ------------------
 
 def obtener_nodos():
-    """Devuelve lista de nodos con id, name, ip."""
     url = f"{ISPCUBE_BASEURL}/nodes/nodes_list"
     resp = _request("GET", url)
     body = resp.json()
@@ -4080,42 +4313,18 @@ def obtener_nodos():
         })
     return nodos
 
-
-def obtener_conexion(pppoe):
-    url = f"{ISPCUBE_BASEURL}/connections?pppoe={pppoe}"
-    resp = _request("GET", url)
-    data = resp.json()
-    if data:
-        conn = data[0]
-        return conn["id"], conn.get("node_id")
-    logger.error(f"No se encontró conexión en ISPCube para {pppoe}")
-
-
-def obtener_conexion_por_pppoe(pppoe_user):
-    url = f"{ISPCUBE_BASEURL}/connection?user={pppoe_user}"
-    resp = _request("GET", url)
-    cliente = resp.json()
-
-    conexiones = cliente.get("connections", [])
-    if not conexiones:
-        logger.error(f"No se encontraron conexiones para PPPoE {pppoe_user}")
-
-    for conn in conexiones:
-        if conn.get("conntype") == "pppoe" and conn.get("user") == pppoe_user:
-            return conn["id"], conn.get("node_id")
-
-    logger.error(f"No se encontró conexión PPPoE exacta para {pppoe_user}")
-
-
 def obtener_todas_conexiones():
-    # Nota: Si conexiones también crece mucho, habrá que paginarla igual que clientes.
-    # Por ahora 7000 conexiones parece pasar el filtro de timeout, pero estamos al límite.
+    """
+    Devuelve lista de conexiones con datos básicos usando endpoint de lista completa.
+    """
     url = f"{ISPCUBE_BASEURL}/connections/connections_list"
-    resp = _request("GET", url)
+    # Timeout extendido por seguridad, pero lógica original
+    resp = _request("GET", url, timeout=60)
     conexiones = resp.json()
 
     if not isinstance(conexiones, list):
         logger.error("Respuesta inesperada de ISPCube al listar conexiones")
+        return []
 
     resultado = []
     for c in conexiones:
@@ -4130,7 +4339,6 @@ def obtener_todas_conexiones():
             })
     return resultado
 
-
 def obtener_planes():
     url = f"{ISPCUBE_BASEURL}/plans/plans_list"
     resp = _request("GET", url)
@@ -4138,6 +4346,7 @@ def obtener_planes():
 
     if not isinstance(planes, list):
         logger.error("Respuesta inesperada de ISPCube al listar planes")
+        return []
 
     resultado = []
     for p in planes:
@@ -4151,55 +4360,34 @@ def obtener_planes():
 
 def obtener_clientes():
     """
-    Devuelve lista completa de clientes usando PAGINACIÓN para evitar Timeouts.
-    Baja de a 500 registros.
+    Devuelve lista completa de clientes usando PAGINACIÓN (esto sí funciona bien).
     """
     url = f"{ISPCUBE_BASEURL}/customers/customers_list"
     all_customers = []
-    
-    # Configuración de paginación
     LIMIT = 500
     offset = 0
     
-    # Feedback visual para consola
-    print(f"     ↳ [Paginación] Iniciando descarga de a {LIMIT} registros...")
+    print(f"     ↳ [Paginación] Iniciando descarga de clientes...")
     
     while True:
         try:
-            # Pasamos los parámetros de paginación
-            # La mayoría de APIs de ISPCube/Laravel usan limit y offset
-            params = {
-                "limit": LIMIT,
-                "offset": offset
-            }
-            
+            params = {"limit": LIMIT, "offset": offset}
             resp = _request("GET", url, params=params)
             batch = resp.json()
             
-            if not isinstance(batch, list):
-                logger.error(f"Formato inesperado en bloque {offset}")
-                break
-                
-            count = len(batch)
-            if count == 0:
-                break # Fin de los datos
+            if not isinstance(batch, list) or len(batch) == 0:
+                break 
             
             all_customers.extend(batch)
-            
-            # Feedback en la misma línea para no ensuciar el log
             sys.stdout.write(f"\r     ↳ [Paginación] Bajados: {len(all_customers)} clientes...")
             sys.stdout.flush()
             
-            # Si el bloque trajo menos del límite, significa que es el último
-            if count < LIMIT:
+            if len(batch) < LIMIT:
                 break
             
-            # Avanzamos el offset para la siguiente página
             offset += LIMIT
-            
         except Exception as e:
             print(f"\n❌ Error bajando bloque offset={offset}: {e}")
-            # Si falla un bloque, devolvemos lo que tenemos hasta ahora para no perder todo
             break
 
     print(f" ✅ Total: {len(all_customers)}")
@@ -4360,7 +4548,37 @@ def validar_pppoe(router_ip: str, pppoe_user: str, puerto: str) -> dict:
 #     except Exception as e:
 #         logger.error(f"Error al validar PPPoE en {router_ip}: {e}")
 #         return {"active": False, "error": str(e)}
-
+def obtener_trafico_en_vivo(router_ip, pppoe_user, port):
+    """
+    Consulta la velocidad actual (Live Traffic) de la interfaz del usuario.
+    Usa el comando '/interface monitor-traffic' en modo 'once'.
+    """
+    try:
+        pool, api = _connect(router_ip, port)
+        
+        # El nombre de la interfaz dinámica suele ser <pppoe-usuario>
+        interface_name = f"<pppoe-{pppoe_user}>"
+        
+        # Ejecutamos el monitor una sola vez (snapshot)
+        # Esto devuelve una lista con un diccionario
+        stats = api.get_resource('/interface').call('monitor-traffic', {
+            'interface': interface_name,
+            'once': 'true'
+        })
+        
+        pool.disconnect()
+        
+        if stats and len(stats) > 0:
+            return {
+                "rx": stats[0].get("rx-bits-per-second", "0"), # Bajada (Download)
+                "tx": stats[0].get("tx-bits-per-second", "0")  # Subida (Upload)
+            }
+        else:
+            return {"error": "Interfaz no activa o no encontrada"}
+            
+    except Exception as e:
+        logger.error(f"Error tráfico en vivo {pppoe_user} ({router_ip}): {e}")
+        return {"error": str(e)}
 
 ==================================================
 ARCHIVO: app\clients\smartolt.py
@@ -4763,26 +4981,37 @@ from app import config
 from app.utils.safe_call import safe_call
 import time
 
+def sync_nodes(db):
+    print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
+    try:
+        nodes = ispcube.obtener_nodos()
+        if nodes:
+            db.cursor.execute("DELETE FROM nodes")
+            for n in nodes:
+                db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
+            config.logger.info(f"[SYNC] {len(nodes)} nodos sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(nodes)} nodos sincronizados")
+            print(f"✅ ({len(nodes)} encontrados)")
+        else:
+            print("⚠️ Lista vacía")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        config.logger.error(f"[SYNC] Error Nodos: {e}")
+
 def sync_secrets(db):
     nodes = db.get_nodes_for_sync()
     if not nodes:
         config.logger.warning("[SYNC] No hay nodos para sync secrets.")
-        print("   ↳ ⚠️ No hay nodos para consultar Mikrotik.")
         return
 
-    # Borramos para regenerar, ahora la tabla soporta duplicados por nodo
     db.cursor.execute("DELETE FROM ppp_secrets")
-    
     print(f"   ↳ Consultando {len(nodes)} Mikrotiks:")
     total_secrets = 0
-    count_ok = 0
 
     for node in nodes:
         ip = node["ip"]
         name = node["name"]
         port = node["port"] if node["port"] else config.MK_PORT
-        
-        # Log visual en consola
         print(f"      > {name} ({ip})...", end=" ", flush=True)
         
         try:
@@ -4792,7 +5021,6 @@ def sync_secrets(db):
                     db.insert_secret(s, ip)
                 count = len(secrets)
                 total_secrets += count
-                count_ok += 1
                 print(f"✅ ({count})")
             else:
                 print("⚠️ Sin respuesta")
@@ -4801,54 +5029,167 @@ def sync_secrets(db):
             config.logger.error(f"[SYNC] Error en router {ip}: {e}")
     
     db.commit()
-    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados de {count_ok}/{len(nodes)} nodos.")
+    config.logger.info(f"[SYNC] {total_secrets} secrets sincronizados.")
     print(f"   ↳ Resumen: {total_secrets} secrets guardados.")
 
-# ... (El resto de las funciones sync_onus, sync_nodes, etc. se mantienen igual, solo asegurate que llamen a este sync_secrets) ...
+def sync_onus(db):
+    print("   ↳ Consultando SmartOLT...", end=" ", flush=True)
+    try:
+        onus = smartolt.get_all_onus()
+        if onus:
+            db.cursor.execute("DELETE FROM subscribers")
+            for onu in onus:
+                db.insert_subscriber(
+                    onu.get("unique_external_id"), onu.get("sn"), onu.get("olt_name"), 
+                    onu.get("olt_id"), onu.get("board"), onu.get("port"), onu.get("onu"), 
+                    onu.get("onu_type_id"), onu.get("name"), onu.get("mode")
+                )
+            db.log_sync_status("smartolt", "ok", f"{len(onus)} ONUs sincronizadas")
+            config.logger.info(f"[SYNC] {len(onus)} ONUs sincronizadas.")
+            print(f"✅ ({len(onus)} ONUs)")
+        else:
+            print("⚠️ Sin datos")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        config.logger.error(f"[SYNC] Error SmartOLT: {e}")
 
-# Función main completa para copiar:
+def sync_plans(db):
+    print("   ↳ [ISPCube] Bajando Planes...", end=" ", flush=True)
+    try:
+        planes = ispcube.obtener_planes()
+        if planes:
+            db.cursor.execute("DELETE FROM plans")
+            for p in planes:
+                db.insert_plan(p["id"], p["name"], p.get("speed"), p.get("comment"))
+            config.logger.info(f"[SYNC] {len(planes)} planes sincronizados.")
+            print(f"✅ ({len(planes)})")
+        else: print("⚠️")
+    except Exception as e: print(f"❌ {e}")
+
+def sync_connections(db):
+    print("   ↳ [ISPCube] Bajando Conexiones (Lista Completa)...", end=" ", flush=True)
+    try:
+        # VOLVEMOS AL MÉTODO CLÁSICO
+        conexiones = ispcube.obtener_todas_conexiones()
+        if conexiones:
+            db.cursor.execute("DELETE FROM connections")
+            for c in conexiones:
+                if not c.get("id") or not c.get("user"): continue
+                db.insert_connection(
+                    str(c["id"]), str(c["user"]), str(c["customer_id"]), 
+                    str(c["node_id"]), str(c["plan_id"]), c.get("direccion")
+                )
+            config.logger.info(f"[SYNC] {len(conexiones)} conexiones sincronizadas.")
+            db.log_sync_status("ispcube", "ok", f"{len(conexiones)} conexiones sincronizadas")
+            print(f"✅ ({len(conexiones)})")
+        else:
+            print("⚠️ Vacío")
+    except Exception as e:
+        print(f"❌ {e}")
+        config.logger.error(f"[SYNC] Error Connections: {e}")
+
+def sync_clientes(db):
+    print("   ↳ [ISPCube] Bajando Clientes...", end=" ", flush=True)
+    try:
+        clientes = ispcube.obtener_clientes()
+        if clientes:
+            db.cursor.execute("DELETE FROM clientes")
+            db.cursor.execute("DELETE FROM clientes_emails")
+            db.cursor.execute("DELETE FROM clientes_telefonos")
+
+            for c in clientes:
+                db.insert_cliente(mapear_cliente(c))
+                insertar_contactos_relacionados(db, c)
+
+            db.commit()
+            config.logger.info(f"[SYNC] {len(clientes)} clientes sincronizados.")
+            db.log_sync_status("ispcube", "ok", f"{len(clientes)} clientes sincronizados")
+            print(f"✅ ({len(clientes)})")
+        else:
+            print("⚠️ Vacío")
+    except Exception as e:
+        print(f"❌ {e}")
+
+# --- UTILIDADES ---
+def insertar_contactos_relacionados(db, json_cliente: dict):
+    for email_obj in json_cliente.get("contact_emails", []):
+        if email_obj.get("email"):
+            db.insert_cliente_email(json_cliente["id"], email_obj.get("email"))
+    for tel_obj in json_cliente.get("phones", []):
+        if tel_obj.get("number"):
+            db.insert_cliente_telefono(json_cliente["id"], tel_obj.get("number"))
+
+def mapear_cliente(json_cliente: dict) -> dict:
+    return {
+        "id": json_cliente.get("id"),
+        "code": json_cliente.get("code"),
+        "name": json_cliente.get("name"),
+        "tax_residence": json_cliente.get("tax_residence"),
+        "type": json_cliente.get("type"),
+        "tax_situation_id": json_cliente.get("tax_situation_id"),
+        "identification_type_id": json_cliente.get("identification_type_id"),
+        "doc_number": json_cliente.get("doc_number"),
+        "auto_bill_sending": json_cliente.get("auto_bill_sending"),
+        "auto_payment_recipe_sending": json_cliente.get("auto_payment_recipe_sending"),
+        "nickname": json_cliente.get("nickname"),
+        "comercial_activity": json_cliente.get("comercial_activity"),
+        "address": json_cliente.get("address"),
+        "between_address1": json_cliente.get("between_address1"),
+        "between_address2": json_cliente.get("between_address2"),
+        "city_id": json_cliente.get("city_id"),
+        "lat": json_cliente.get("lat"),
+        "lng": json_cliente.get("lng"),
+        "extra1": json_cliente.get("extra1"),
+        "extra2": json_cliente.get("extra2"),
+        "entity_id": json_cliente.get("entity_id"),
+        "collector_id": json_cliente.get("collector_id"),
+        "seller_id": json_cliente.get("seller_id"),
+        "block": json_cliente.get("block"),
+        "free": json_cliente.get("free"),
+        "apply_late_payment_due": json_cliente.get("apply_late_payment_due"),
+        "apply_reconnection": json_cliente.get("apply_reconnection"),
+        "contract": json_cliente.get("contract"),
+        "contract_type_id": json_cliente.get("contract_type_id"),
+        "contract_expiration_date": json_cliente.get("contract_expiration_date"),
+        "paycomm": json_cliente.get("paycomm"),
+        "expiration_type_id": json_cliente.get("expiration_type_id"),
+        "business_id": json_cliente.get("business_id"),
+        "first_expiration_date": json_cliente.get("first_expiration_date"),
+        "second_expiration_date": json_cliente.get("second_expiration_date"),
+        "next_month_corresponding_date": json_cliente.get("next_month_corresponding_date"),
+        "start_date": json_cliente.get("start_date"),
+        "perception_id": json_cliente.get("perception_id"),
+        "phonekey": json_cliente.get("phonekey"),
+        "debt": json_cliente.get("debt"),
+        "duedebt": json_cliente.get("duedebt"),
+        "speed_limited": json_cliente.get("speed_limited"),
+        "status": json_cliente.get("status"),
+        "enable_date": json_cliente.get("enable_date"),
+        "block_date": json_cliente.get("block_date"),
+        "created_at": json_cliente.get("created_at"),
+        "updated_at": json_cliente.get("updated_at"),
+        "deleted_at": json_cliente.get("deleted_at"),
+        "temporary": json_cliente.get("temporary"),
+    }
+
 def nightly_sync():
     init_db()
     db = Database()
     print("\n[SYNC] 🚀 Iniciando Sincronización...\n")
     try:
-        # 1. Nodos (ISPCube)
-        print("   ↳ Buscando Nodos en ISPCube...", end=" ", flush=True)
-        try:
-            nodes = ispcube.obtener_nodos()
-            if nodes:
-                db.cursor.execute("DELETE FROM nodes")
-                for n in nodes: db.insert_node(n["id"], n["name"], n["ip"], n["puerto"])
-                print(f"✅ ({len(nodes)})")
-            else: print("⚠️ Vacío")
-        except Exception as e: print(f"❌ {e}")
-
-        # 2. Secrets (Mikrotik) - AHORA DETALLADO
+        sync_nodes(db)
         sync_secrets(db)
-
-        # 3. ONUs
-        print("   ↳ Consultando SmartOLT...", end=" ", flush=True)
-        try:
-            onus = smartolt.get_all_onus()
-            if onus:
-                db.cursor.execute("DELETE FROM subscribers")
-                for o in onus: 
-                    db.insert_subscriber(o.get("unique_external_id"), o.get("sn"), o.get("olt_name"), o.get("olt_id"), o.get("board"), o.get("port"), o.get("onu"), o.get("onu_type_id"), o.get("name"), o.get("mode"))
-                print(f"✅ ({len(onus)})")
-            else: print("⚠️ Vacío")
-        except Exception as e: print(f"❌ {e}")
-
-        # 4. Datos Admin
-        # ... (Tu código existente para planes, conexiones, clientes) ...
-        # Solo asegúrate de llamar a db.match_connections() al final.
+        sync_onus(db)
+        sync_plans(db)
+        sync_connections(db) # Vuelve a usar el método "todo de una vez"
+        sync_clientes(db)
         
-        # Para abreviar, asumo que tienes el resto. Lo importante fue sync_secrets.
-        
-        print("   ↳ Cruzando datos (Match)...", end=" ", flush=True)
+        print("\n   ↳ Cruzando datos (Match Connections)...", end=" ", flush=True)
         db.match_connections()
         db.commit()
         print("✅ OK")
         
+        config.logger.info("[SYNC] Sincronización completa finalizada.")
     finally:
         db.close()
         print("\n[SYNC] ✨ Finalizado.\n")

@@ -150,3 +150,34 @@ def validar_pppoe(router_ip: str, pppoe_user: str, puerto: str) -> dict:
 #     except Exception as e:
 #         logger.error(f"Error al validar PPPoE en {router_ip}: {e}")
 #         return {"active": False, "error": str(e)}
+def obtener_trafico_en_vivo(router_ip, pppoe_user, port):
+    """
+    Consulta la velocidad actual (Live Traffic) de la interfaz del usuario.
+    Usa el comando '/interface monitor-traffic' en modo 'once'.
+    """
+    try:
+        pool, api = _connect(router_ip, port)
+        
+        # El nombre de la interfaz dinámica suele ser <pppoe-usuario>
+        interface_name = f"<pppoe-{pppoe_user}>"
+        
+        # Ejecutamos el monitor una sola vez (snapshot)
+        # Esto devuelve una lista con un diccionario
+        stats = api.get_resource('/interface').call('monitor-traffic', {
+            'interface': interface_name,
+            'once': 'true'
+        })
+        
+        pool.disconnect()
+        
+        if stats and len(stats) > 0:
+            return {
+                "rx": stats[0].get("rx-bits-per-second", "0"), # Bajada (Download)
+                "tx": stats[0].get("tx-bits-per-second", "0")  # Subida (Upload)
+            }
+        else:
+            return {"error": "Interfaz no activa o no encontrada"}
+            
+    except Exception as e:
+        logger.error(f"Error tráfico en vivo {pppoe_user} ({router_ip}): {e}")
+        return {"error": str(e)}
