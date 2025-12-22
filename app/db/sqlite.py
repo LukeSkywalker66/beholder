@@ -130,7 +130,7 @@ class Database:
         query = """
         SELECT s.router_ip, n.puerto
         FROM ppp_secrets s
-        LEFT JOIN nodes n ON s.router_ip = n.ip
+        LEFT JOIN nodes n ON s.router_ip = n.ip_address
         WHERE LOWER(TRIM(s.name)) = LOWER(TRIM(?))
         LIMIT 1
         """
