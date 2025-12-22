@@ -122,20 +122,25 @@ class Database:
     # 
     def get_router_for_pppoe(self, pppoe_user: str):
         """
-        Busca en la DB local a qué nodo pertenece el usuario y devuelve IP y Puerto.
-        Retorna: (ip, port) o None
+        Busca la IP del router basándose en los Secrets sincronizados de Mikrotik.
+        
+        Ventaja: Encuentra el router incluso si el cliente figura como "No Vinculado"
+        o "Desconocido" en el sistema de gestión, siempre que exista técnicamente.
         """
         query = """
-        SELECT n.ip_address, n.puerto
-        FROM connections c
-        JOIN nodes n ON c.node_id = n.node_id
-        WHERE c.pppoe_username = ?
+        SELECT s.router_ip, n.puerto
+        FROM ppp_secrets s
+        LEFT JOIN nodes n ON s.router_ip = n.ip
+        WHERE LOWER(TRIM(s.name)) = LOWER(TRIM(?))
         LIMIT 1
         """
+        # Agregamos LOWER/TRIM por seguridad, para hacer la búsqueda insensible a mayúsculas
         self.cursor.execute(query, (pppoe_user,))
         row = self.cursor.fetchone()
         
         if row:
+            # row[0] = router_ip (desde ppp_secrets)
+            # row[1] = puerto (desde nodes, o None si no macheó)
             return row[0], row[1]
         return None
     

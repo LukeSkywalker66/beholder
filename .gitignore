@@ -25,3 +25,5 @@ config/.env.*.local
 config/.env.*.development
 config/.env.*.production
 config/.env.*.test
+# Base de datos
+*.db
