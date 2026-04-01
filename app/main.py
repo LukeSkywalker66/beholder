@@ -6,9 +6,12 @@ from app.security import get_api_key
 from app.db.sqlite import Database # Importación necesaria
 from app.config import logger
 from app.clients import mikrotik
+from app.oraculo_router import router as oraculo_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Beholder - Diagnóstico Centralizado")
+
+app.include_router(oraculo_router)
 
 app.add_middleware(
     CORSMiddleware,

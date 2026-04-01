@@ -9,9 +9,15 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Artefactos locales de pruebas
+.tmp_*.py
+
 # Archivos de logs
 logs/
 *.log
+
+# Base local SQLite de runtime
+data/*.db
 
 # Configuración de IDEs
 .vscode/

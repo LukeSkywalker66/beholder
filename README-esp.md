@@ -98,6 +98,25 @@ ISPCUBE_APIKEY=tu_apikey_ispcube
 ISPCUBE_USER=tu_usuario
 ISPCUBE_PASSWORD=tu_password
 ISPCUBE_CLIENTID=tu_client_id
+
+# Oráculo - InfluxDB
+ORACULO_INFLUX_URL=http://tu-influx:8086
+ORACULO_INFLUX_TOKEN=tu_token_influx
+ORACULO_INFLUX_ORG=tu_org
+ORACULO_INFLUX_TIMEOUT_MS=10000
+
+# Oráculo - Buckets / measurements (downsampling)
+ORACULO_INFLUX_RAW_BUCKET=netflow
+ORACULO_INFLUX_RESUMEN_BUCKET=netflow_resumen
+ORACULO_INFLUX_RAW_MEASUREMENT=netflow
+ORACULO_INFLUX_RESUMEN_MEASUREMENT=resumen_5m
+ORACULO_INFLUX_IN_BYTES_FIELD=in_bytes
+
+# Oráculo - Graylog
+ORACULO_GRAYLOG_URL=http://tu-graylog:9000
+ORACULO_GRAYLOG_USER=usuario_o_token
+ORACULO_GRAYLOG_PASSWORD=password_o_token
+ORACULO_GRAYLOG_TIMEOUT_SEC=15
 4. Ejecución de la Aplicación
 Opción A: Correr el Servidor API (Desarrollo) Esto inicia el backend en el puerto 8500 (puerto por defecto en producción).
 
@@ -124,6 +143,27 @@ Buscar Cliente (Nuevo)
 Bash
 
 curl -X GET "http://127.0.0.1:8500/search?q=Juan%20Perez" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+
+Tráfico por IP (Oráculo)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/trafico/172.17.1.160?rango=15m" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+
+Rangos soportados para tráfico:
+- Tiempo real: 15m, 30m, 60m (bucket crudo)
+- Histórico: 12h, 24h, 7d, 30d (bucket resumido)
+
+Respuesta de tráfico:
+- Lista de puntos con: tiempo, descarga_mbps, subida_mbps
+
+Historial de sesiones PPPoE (Oráculo)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/sesiones/usuario_pppoe?limite=20" \
      -H "x-api-key: tu_clave_secreta_aqui"
 🛠 Despliegue (Producción)
 El proyecto está configurado para correr vía systemd en Debian.
