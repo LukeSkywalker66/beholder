@@ -1,5 +1,8 @@
 import asyncio
+import csv
+import io
 import re
+import time
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -27,8 +30,41 @@ class SesionCliente(BaseModel):
     router: str
 
 
+class ProbeResult(BaseModel):
+    ok: bool
+    time_sec: float
+    detail: str
+
+
+class OraculoDebugResponse(BaseModel):
+    influx: ProbeResult
+    graylog: ProbeResult
+
+
 _REALTIME_RANGES = {"15m", "30m", "60m"}
 _HISTORY_RANGES = {"12h", "24h", "7d", "30d"}
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    markers = (
+        "timed out",
+        "timeout",
+        "connection refused",
+        "failed to establish a new connection",
+        "max retries exceeded",
+        "temporarily unavailable",
+        "connection reset",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _sleep_with_backoff(attempt: int) -> None:
+    base = max(config.ORACULO_RETRY_BACKOFF_SEC, 0.0)
+    multiplier = max(config.ORACULO_RETRY_BACKOFF_MULTIPLIER, 1.0)
+    delay = base * (multiplier ** max(attempt - 1, 0))
+    if delay > 0:
+        time.sleep(delay)
 
 
 def _format_duration(start: datetime, end: datetime) -> str:
@@ -72,14 +108,20 @@ def _parse_graylog_timestamp(raw_timestamp: str) -> datetime:
 
 
 def _build_flux_query(ip_cliente: str, rango: str) -> str:
-        raw_bucket = config.ORACULO_INFLUX_RAW_BUCKET
-        resumen_bucket = config.ORACULO_INFLUX_RESUMEN_BUCKET
-        raw_measurement = config.ORACULO_INFLUX_RAW_MEASUREMENT
-        resumen_measurement = config.ORACULO_INFLUX_RESUMEN_MEASUREMENT
-        in_bytes_field = config.ORACULO_INFLUX_IN_BYTES_FIELD
+    raw_bucket = config.ORACULO_INFLUX_RAW_BUCKET
+    resumen_bucket = config.ORACULO_INFLUX_RESUMEN_BUCKET
+    raw_measurement = config.ORACULO_INFLUX_RAW_MEASUREMENT
+    resumen_measurement = config.ORACULO_INFLUX_RESUMEN_MEASUREMENT
+    in_bytes_field = config.ORACULO_INFLUX_IN_BYTES_FIELD
+    resumen_ip_tag = config.ORACULO_INFLUX_RESUMEN_IP_TAG
+    sentido_tag = config.ORACULO_INFLUX_RESUMEN_SENTIDO_TAG
+    sentido_descarga = config.ORACULO_INFLUX_SENTIDO_DESCARGA
+    sentido_subida = config.ORACULO_INFLUX_SENTIDO_SUBIDA
+    realtime_window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
+    resumen_window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
 
-        if rango in _REALTIME_RANGES:
-                return f'''
+    if rango in _REALTIME_RANGES:
+        return f'''
 ip = "{ip_cliente}"
 rango = "-{rango}"
 
@@ -88,42 +130,42 @@ descarga = from(bucket: "{raw_bucket}")
     |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip)
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
-    |> set(key: "sentido", value: "descarga")
+    |> set(key: "{sentido_tag}", value: "{sentido_descarga}")
 
 subida = from(bucket: "{raw_bucket}")
     |> range(start: duration(v: rango))
     |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip)
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
-    |> set(key: "sentido", value: "subida")
+    |> set(key: "{sentido_tag}", value: "{sentido_subida}")
 
 union(tables: [descarga, subida])
-    |> pivot(rowKey:["_time"], columnKey: ["sentido"], valueColumn: "_value")
+    |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
     |> map(fn: (r) => ({{
-            r with descarga_mbps: float(v: r.descarga) * 8.0 / 60.0 / 1024.0 / 1024.0,
-            subida_mbps: float(v: r.subida) * 8.0 / 60.0 / 1024.0 / 1024.0
+    r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {realtime_window_seconds}.0 / 1024.0 / 1024.0,
+    subida_mbps: float(v: r["{sentido_subida}"]) * 8.0 / {realtime_window_seconds}.0 / 1024.0 / 1024.0
     }}))
     |> keep(columns: ["_time", "descarga_mbps", "subida_mbps"])
     |> sort(columns: ["_time"], desc: false)
 '''
 
-        if rango in _HISTORY_RANGES:
-                return f'''
+    if rango in _HISTORY_RANGES:
+        return f'''
 rango = "-{rango}"
 
 from(bucket: "{resumen_bucket}")
     |> range(start: duration(v: rango))
-    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["ip_cliente"] == "{ip_cliente}")
-    |> pivot(rowKey:["_time"], columnKey: ["sentido"], valueColumn: "_value")
+    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}")
+    |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
     |> map(fn: (r) => ({{
-            r with descarga_mbps: float(v: r.descarga) * 8.0 / 300.0 / 1024.0 / 1024.0,
-            subida_mbps: float(v: r.subida) * 8.0 / 300.0 / 1024.0 / 1024.0
+        r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0,
+        subida_mbps: float(v: r["{sentido_subida}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0
     }}))
     |> keep(columns: ["_time", "descarga_mbps", "subida_mbps"])
     |> sort(columns: ["_time"], desc: false)
 '''
 
-        raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
+    raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
 
 
 def _query_influx_trafico(ip_cliente: str, rango: str) -> list[TraficoPunto]:
@@ -144,21 +186,44 @@ def _query_influx_trafico(ip_cliente: str, rango: str) -> list[TraficoPunto]:
 
     flux_query = _build_flux_query(ip_cliente, rango)
 
-    try:
-        with InfluxDBClient(url=influx_url, token=influx_token, org=influx_org, timeout=timeout_ms) as client:
-            tables = client.query_api().query(query=flux_query, org=influx_org)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        config.logger.exception(
-            "[ORACULO][INFLUX] Fallo consulta ip=%s rango=%s url=%s org=%s timeout_ms=%s",
-            ip_cliente,
-            rango,
-            influx_url,
-            influx_org,
-            timeout_ms,
-        )
-        raise HTTPException(status_code=502, detail=f"Fallo consultando InfluxDB: {exc}") from exc
+    attempts = max(config.ORACULO_RETRY_ATTEMPTS, 1)
+    last_exc: Optional[Exception] = None
+    tables = []
+    for attempt in range(1, attempts + 1):
+        try:
+            with InfluxDBClient(url=influx_url, token=influx_token, org=influx_org, timeout=timeout_ms) as client:
+                tables = client.query_api().query(query=flux_query, org=influx_org)
+            last_exc = None
+            break
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            should_retry = attempt < attempts and _is_transient_error(exc)
+            if should_retry:
+                config.logger.warning(
+                    "[ORACULO][INFLUX] Retry %s/%s ip=%s rango=%s motivo=%s",
+                    attempt,
+                    attempts,
+                    ip_cliente,
+                    rango,
+                    str(exc)[:180],
+                )
+                _sleep_with_backoff(attempt)
+                continue
+
+            config.logger.exception(
+                "[ORACULO][INFLUX] Fallo consulta ip=%s rango=%s url=%s org=%s timeout_ms=%s",
+                ip_cliente,
+                rango,
+                influx_url,
+                influx_org,
+                timeout_ms,
+            )
+            raise HTTPException(status_code=502, detail=f"Fallo consultando InfluxDB: {exc}") from exc
+
+    if last_exc is not None:
+        raise HTTPException(status_code=502, detail=f"Fallo consultando InfluxDB: {last_exc}") from last_exc
 
     puntos: list[TraficoPunto] = []
     for table in tables:
@@ -204,41 +269,164 @@ def _query_graylog_raw(usuario_pppoe: str, limite: int) -> list[dict]:
     fetch_limit = min(max(limite * 8, 200), 5000)
     params = {
         "query": f'"{usuario_pppoe}"',
-        "range": 30 * 24 * 60 * 60,
+        "range": config.ORACULO_GRAYLOG_RANGE_SEC,
         "limit": fetch_limit,
-        "sort": "asc",
+        "sort": config.ORACULO_GRAYLOG_SORT,
+        "fields": config.ORACULO_GRAYLOG_FIELDS,
     }
 
+    attempts = max(config.ORACULO_RETRY_ATTEMPTS, 1)
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.get(
+                endpoint,
+                params=params,
+                auth=(graylog_user, graylog_password),
+                headers={"X-Requested-By": "beholder-oraculo", "Accept": "application/json"},
+                timeout=timeout_sec,
+            )
+            response.raise_for_status()
+
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            body = response.text or ""
+            if "application/json" in content_type:
+                if not body.strip():
+                    return []
+                payload = response.json()
+                return payload.get("messages", [])
+
+            if "text/csv" in content_type:
+                if not body.strip():
+                    return []
+
+                records: list[dict] = []
+                reader = csv.DictReader(io.StringIO(body))
+                for row in reader:
+                    records.append(
+                        {
+                            "message": {
+                                "timestamp": row.get("timestamp"),
+                                "source": row.get("source") or row.get("gl2_remote_ip"),
+                                "message": row.get("message", ""),
+                            }
+                        }
+                    )
+                return records
+
+            if not body.strip():
+                return []
+
+            raise HTTPException(
+                status_code=502,
+                detail=f"Formato de respuesta Graylog no soportado: {content_type or 'desconocido'}",
+            )
+        except HTTPException:
+            raise
+        except requests.RequestException as exc:
+            last_exc = exc
+            retry_status = None
+            if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                retry_status = exc.response.status_code
+
+            should_retry = attempt < attempts and (
+                _is_transient_error(exc)
+                or retry_status in (429, 500, 502, 503, 504)
+            )
+            if should_retry:
+                config.logger.warning(
+                    "[ORACULO][GRAYLOG] Retry %s/%s usuario=%s motivo=%s",
+                    attempt,
+                    attempts,
+                    usuario_pppoe,
+                    str(exc)[:180],
+                )
+                _sleep_with_backoff(attempt)
+                continue
+
+            config.logger.exception(
+                "[ORACULO][GRAYLOG] Fallo HTTP usuario=%s limite=%s endpoint=%s timeout_sec=%s",
+                usuario_pppoe,
+                limite,
+                endpoint,
+                timeout_sec,
+            )
+            raise HTTPException(status_code=502, detail=f"Fallo consultando Graylog: {exc}") from exc
+        except ValueError as exc:
+            last_exc = exc
+            should_retry = attempt < attempts and _is_transient_error(exc)
+            if should_retry:
+                _sleep_with_backoff(attempt)
+                continue
+
+            config.logger.exception(
+                "[ORACULO][GRAYLOG] JSON invalido usuario=%s endpoint=%s",
+                usuario_pppoe,
+                endpoint,
+            )
+            raise HTTPException(status_code=502, detail=f"Respuesta invalida de Graylog: {exc}") from exc
+
+    if last_exc is not None:
+        raise HTTPException(status_code=502, detail=f"Fallo consultando Graylog: {last_exc}") from last_exc
+    return []
+
+
+def _probe_influx() -> ProbeResult:
+    start = time.perf_counter()
+    influx_url = config.ORACULO_INFLUX_URL
+    influx_token = config.ORACULO_INFLUX_TOKEN
+    influx_org = config.ORACULO_INFLUX_ORG
+    if not influx_url or not influx_token or not influx_org:
+        return ProbeResult(ok=False, time_sec=round(time.perf_counter() - start, 3), detail="Credenciales incompletas")
+
+    try:
+        with InfluxDBClient(url=influx_url, token=influx_token, org=influx_org, timeout=config.ORACULO_INFLUX_TIMEOUT_MS) as client:
+            bucket = client.buckets_api().find_bucket_by_name(config.ORACULO_INFLUX_RESUMEN_BUCKET)
+            if not bucket:
+                return ProbeResult(
+                    ok=False,
+                    time_sec=round(time.perf_counter() - start, 3),
+                    detail=f"Bucket no visible: {config.ORACULO_INFLUX_RESUMEN_BUCKET}",
+                )
+    except Exception as exc:
+        return ProbeResult(ok=False, time_sec=round(time.perf_counter() - start, 3), detail=str(exc)[:200])
+
+    return ProbeResult(ok=True, time_sec=round(time.perf_counter() - start, 3), detail="OK")
+
+
+def _probe_graylog() -> ProbeResult:
+    start = time.perf_counter()
+    graylog_url = config.ORACULO_GRAYLOG_URL
+    graylog_user = config.ORACULO_GRAYLOG_USER
+    graylog_password = config.ORACULO_GRAYLOG_PASSWORD
+    if not graylog_url or not graylog_user or not graylog_password:
+        return ProbeResult(ok=False, time_sec=round(time.perf_counter() - start, 3), detail="Credenciales incompletas")
+
+    endpoint = f"{graylog_url.rstrip('/')}/api/search/universal/relative"
     try:
         response = requests.get(
             endpoint,
-            params=params,
+            params={
+                "query": "*",
+                "range": 300,
+                "limit": 1,
+                "sort": config.ORACULO_GRAYLOG_SORT,
+                "fields": config.ORACULO_GRAYLOG_FIELDS,
+            },
             auth=(graylog_user, graylog_password),
             headers={"X-Requested-By": "beholder-oraculo"},
-            timeout=timeout_sec,
+            timeout=config.ORACULO_GRAYLOG_TIMEOUT_SEC,
         )
-        response.raise_for_status()
-        payload = response.json()
-    except HTTPException:
-        raise
-    except requests.RequestException as exc:
-        config.logger.exception(
-            "[ORACULO][GRAYLOG] Fallo HTTP usuario=%s limite=%s endpoint=%s timeout_sec=%s",
-            usuario_pppoe,
-            limite,
-            endpoint,
-            timeout_sec,
-        )
-        raise HTTPException(status_code=502, detail=f"Fallo consultando Graylog: {exc}") from exc
-    except ValueError as exc:
-        config.logger.exception(
-            "[ORACULO][GRAYLOG] JSON invalido usuario=%s endpoint=%s",
-            usuario_pppoe,
-            endpoint,
-        )
-        raise HTTPException(status_code=502, detail=f"Respuesta invalida de Graylog: {exc}") from exc
+        if response.status_code >= 400:
+            return ProbeResult(
+                ok=False,
+                time_sec=round(time.perf_counter() - start, 3),
+                detail=f"HTTP {response.status_code}",
+            )
+    except Exception as exc:
+        return ProbeResult(ok=False, time_sec=round(time.perf_counter() - start, 3), detail=str(exc)[:200])
 
-    return payload.get("messages", [])
+    return ProbeResult(ok=True, time_sec=round(time.perf_counter() - start, 3), detail="OK")
 
 
 def _pair_sessions(usuario_pppoe: str, graylog_messages: list[dict], limite: int) -> list[SesionCliente]:
@@ -348,3 +536,10 @@ async def obtener_historial_sesiones(
 ) -> list[SesionCliente]:
     mensajes = await asyncio.to_thread(_query_graylog_raw, usuario_pppoe, limite)
     return _pair_sessions(usuario_pppoe, mensajes, limite)
+
+
+@router.get("/debug", response_model=OraculoDebugResponse)
+async def debug_oraculo() -> OraculoDebugResponse:
+    influx = await asyncio.to_thread(_probe_influx)
+    graylog = await asyncio.to_thread(_probe_graylog)
+    return OraculoDebugResponse(influx=influx, graylog=graylog)
