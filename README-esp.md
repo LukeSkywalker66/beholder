@@ -159,11 +159,27 @@ Rangos soportados para tráfico:
 Respuesta de tráfico:
 - Lista de puntos con: tiempo, descarga_mbps, subida_mbps
 
+Tráfico por PPPoE (Oráculo)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/trafico-pppoe/usuario_pppoe?rango=24h" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+
+Este endpoint orquesta Graylog + InfluxDB para devolver una serie continua de consumo por usuario PPPoE, aunque cambie de IP durante el período.
+
 Historial de sesiones PPPoE (Oráculo)
 
 Bash
 
 curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/sesiones/usuario_pppoe?limite=20" \
+     -H "x-api-key: tu_clave_secreta_aqui"
+
+Diagnóstico de integraciones (Oráculo)
+
+Bash
+
+curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/debug" \
      -H "x-api-key: tu_clave_secreta_aqui"
 🛠 Despliegue (Producción)
 El proyecto está configurado para correr vía systemd en Debian.
