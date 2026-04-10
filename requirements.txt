@@ -14,3 +14,4 @@ python-dotenv==1.0.1    # para manejar variables de entorno (.env)
 loguru==0.7.2
 # Dependencias comunes
 requests==2.32.3        # para llamadas HTTP (SmartOLT, ISPCube)
+influxdb-client==1.46.0 # cliente de InfluxDB v2
