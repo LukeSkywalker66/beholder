@@ -1,9 +1,10 @@
 import asyncio
 import csv
 import io
+import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 import requests
@@ -11,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from influxdb_client.client.influxdb_client import InfluxDBClient
 from pydantic import BaseModel
 from app import config
+from app.db.sqlite import Database
 
 
 router = APIRouter(prefix="/api/v1/oraculo", tags=["oraculo"])
@@ -61,6 +63,10 @@ _RANGE_SECONDS = {
     "30d": 30 * 24 * 60 * 60,
 }
 
+_GRAYLOG_SESSION_CACHE: dict[str, tuple[float, list[SesionIpCliente]]] = {}
+_GRAYLOG_SESSION_CACHE_LOCK = asyncio.Lock()
+_REQUEST_LOGGER = logging.getLogger("uvicorn.error")
+
 
 def _is_transient_error(exc: Exception) -> bool:
     text = str(exc).lower()
@@ -82,6 +88,17 @@ def _sleep_with_backoff(attempt: int) -> None:
     delay = base * (multiplier ** max(attempt - 1, 0))
     if delay > 0:
         time.sleep(delay)
+
+
+def _resolve_influx_node_ip(router_ip: Optional[str]) -> Optional[str]:
+    if not router_ip:
+        return None
+
+    router_ip = router_ip.strip()
+    if not router_ip:
+        return None
+
+    return config.ORACULO_NODO_IP_MAP.get(router_ip, router_ip)
 
 
 def _extract_ipv4_candidates(message_text: str) -> list[str]:
@@ -141,6 +158,8 @@ def _build_influx_interval_query(
     rango: str,
     start_iso: str,
     stop_iso: str,
+    nodo_ip: Optional[str] = None,
+    force_raw: bool = False,
 ) -> str:
     raw_bucket = config.ORACULO_INFLUX_RAW_BUCKET
     resumen_bucket = config.ORACULO_INFLUX_RESUMEN_BUCKET
@@ -151,23 +170,25 @@ def _build_influx_interval_query(
     sentido_tag = config.ORACULO_INFLUX_RESUMEN_SENTIDO_TAG
     sentido_descarga = config.ORACULO_INFLUX_SENTIDO_DESCARGA
     sentido_subida = config.ORACULO_INFLUX_SENTIDO_SUBIDA
+    node_tag = config.ORACULO_INFLUX_NODE_TAG
     realtime_window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
     resumen_window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
+    node_clause = f' and r["{node_tag}"] == "{nodo_ip}"' if node_tag and nodo_ip else ""
 
-    if rango in _REALTIME_RANGES:
+    if force_raw or rango in _REALTIME_RANGES:
         return f'''
 ip = "{ip_cliente}"
 
 descarga = from(bucket: "{raw_bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip)
+    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip{node_clause})
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
     |> set(key: "{sentido_tag}", value: "{sentido_descarga}")
 
 subida = from(bucket: "{raw_bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip)
+    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip{node_clause})
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
     |> set(key: "{sentido_tag}", value: "{sentido_subida}")
@@ -186,7 +207,7 @@ union(tables: [descarga, subida])
         return f'''
 from(bucket: "{resumen_bucket}")
     |> range(start: time(v: "{start_iso}"), stop: time(v: "{stop_iso}"))
-    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}")
+    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}"{node_clause})
     |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
     |> map(fn: (r) => ({{
         r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0,
@@ -199,13 +220,19 @@ from(bucket: "{resumen_bucket}")
     raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
 
 
-def _query_influx_interval(ip_cliente: str, rango: str, start_iso: str, stop_iso: str) -> list[TraficoPunto]:
+def _query_influx_interval(
+    ip_cliente: str,
+    rango: str,
+    start_iso: str,
+    stop_iso: str,
+    nodo_ip: Optional[str] = None,
+) -> list[TraficoPunto]:
     influx_url = config.ORACULO_INFLUX_URL
     influx_token = config.ORACULO_INFLUX_TOKEN
     influx_org = config.ORACULO_INFLUX_ORG
     timeout_ms = config.ORACULO_INFLUX_TIMEOUT_MS
 
-    flux_query = _build_influx_interval_query(ip_cliente, rango, start_iso, stop_iso)
+    flux_query = _build_influx_interval_query(ip_cliente, rango, start_iso, stop_iso, nodo_ip=nodo_ip)
 
     attempts = max(config.ORACULO_RETRY_ATTEMPTS, 1)
     last_exc: Optional[Exception] = None
@@ -245,6 +272,47 @@ def _query_influx_interval(ip_cliente: str, rango: str, start_iso: str, stop_iso
                     subida_mbps=round(subida, 4),
                 )
             )
+
+    if not puntos and rango in _HISTORY_RANGES:
+        config.logger.info(
+            "[ORACULO][INFLUX] Fallback a crudo usuario/ip=%s rango=%s nodo=%s",
+            ip_cliente,
+            rango,
+            nodo_ip or "<sin nodo>",
+        )
+        fallback_query = _build_influx_interval_query(
+            ip_cliente,
+            rango,
+            start_iso,
+            stop_iso,
+            nodo_ip=nodo_ip,
+            force_raw=True,
+        )
+
+        try:
+            with InfluxDBClient(url=influx_url, token=influx_token, org=influx_org, timeout=timeout_ms) as client:
+                fallback_tables = client.query_api().query(query=fallback_query, org=influx_org)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Fallo consultando InfluxDB: {exc}") from exc
+
+        for table in fallback_tables:
+            for record in table.records:
+                timestamp = record.get_time()
+                if timestamp is None:
+                    continue
+
+                descarga_raw = record.values.get("descarga_mbps")
+                subida_raw = record.values.get("subida_mbps")
+                descarga = float(descarga_raw) if descarga_raw is not None else 0.0
+                subida = float(subida_raw) if subida_raw is not None else 0.0
+
+                puntos.append(
+                    TraficoPunto(
+                        tiempo=timestamp.isoformat(),
+                        descarga_mbps=round(descarga, 4),
+                        subida_mbps=round(subida, 4),
+                    )
+                )
 
     return puntos
 
@@ -338,21 +406,189 @@ def _query_graylog_session_windows(usuario_pppoe: str, limite: int, range_sec: O
     return sesiones[:limite]
 
 
-def _build_pppoe_traffic_series(usuario_pppoe: str, rango: str, limite: int = 100) -> list[TraficoPunto]:
-    ventanas = _query_graylog_session_windows(usuario_pppoe, limite, range_sec=_RANGE_SECONDS.get(rango))
-    if not ventanas:
-        return []
+def _to_utc_datetime(raw_iso: str) -> Optional[datetime]:
+    try:
+        parsed = datetime.fromisoformat(raw_iso.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
-    merged_points: list[TraficoPunto] = []
-    for ventana in ventanas:
-        if not ventana.ip_cliente:
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_pppoe_segments(
+    sesiones: list[SesionIpCliente],
+    rango_segundos: int,
+) -> list[tuple[str, str, str]]:
+    now = datetime.now(timezone.utc)
+    rango_segundos = max(rango_segundos, 1)
+    window_start = now - timedelta(seconds=rango_segundos)
+    window_end = now
+
+    prepared: list[tuple[str, datetime, datetime]] = []
+    for sesion in sesiones:
+        if not sesion.ip_cliente:
             continue
 
-        start_iso = ventana.inicio
-        stop_iso = ventana.fin if ventana.fin else datetime.now(timezone.utc).isoformat()
-        merged_points.extend(_query_influx_interval(ventana.ip_cliente, rango, start_iso, stop_iso))
+        start_dt = _to_utc_datetime(sesion.inicio)
+        if not start_dt:
+            continue
 
-    return _merge_traffic_points(merged_points)
+        end_dt = _to_utc_datetime(sesion.fin) if sesion.fin else None
+        if not end_dt:
+            end_dt = now
+
+        if end_dt <= start_dt:
+            continue
+
+        clamped_start = max(start_dt, window_start)
+        clamped_end = min(end_dt, window_end)
+        if clamped_end <= clamped_start:
+            continue
+
+        prepared.append((sesion.ip_cliente.strip(), clamped_start, clamped_end))
+
+    if not prepared:
+        return []
+
+    prepared.sort(key=lambda row: (row[0], row[1], row[2]))
+    merged: list[tuple[str, datetime, datetime]] = []
+    for ip, start_dt, end_dt in prepared:
+        if not merged:
+            merged.append((ip, start_dt, end_dt))
+            continue
+
+        prev_ip, prev_start, prev_end = merged[-1]
+        if ip == prev_ip and start_dt <= prev_end:
+            merged[-1] = (prev_ip, prev_start, max(prev_end, end_dt))
+            continue
+
+        merged.append((ip, start_dt, end_dt))
+
+    return [(ip, start.isoformat(), end.isoformat()) for ip, start, end in merged]
+
+
+async def _get_cached_graylog_sessions(
+    usuario_pppoe: str,
+    limite: int,
+    range_sec: int,
+) -> tuple[list[SesionIpCliente], str]:
+    cache_key = f"{usuario_pppoe.strip().lower()}|{limite}|{range_sec}"
+    ttl_sec = max(config.ORACULO_GRAYLOG_SESSION_CACHE_TTL_SEC, 0)
+    now_mono = time.monotonic()
+
+    if ttl_sec == 0:
+        sesiones = await asyncio.to_thread(_query_graylog_session_windows, usuario_pppoe, limite, range_sec)
+        return sesiones, "bypass"
+
+    if ttl_sec > 0:
+        async with _GRAYLOG_SESSION_CACHE_LOCK:
+            cached = _GRAYLOG_SESSION_CACHE.get(cache_key)
+            if cached:
+                created_at, sesiones = cached
+                if now_mono - created_at <= ttl_sec:
+                    return list(sesiones), "hit"
+                _GRAYLOG_SESSION_CACHE.pop(cache_key, None)
+
+    sesiones = await asyncio.to_thread(_query_graylog_session_windows, usuario_pppoe, limite, range_sec)
+
+    async with _GRAYLOG_SESSION_CACHE_LOCK:
+        _GRAYLOG_SESSION_CACHE[cache_key] = (time.monotonic(), list(sesiones))
+
+    return sesiones, "miss"
+
+
+async def _query_influx_interval_async(
+    sem: asyncio.Semaphore,
+    ip_cliente: str,
+    rango: str,
+    start_iso: str,
+    stop_iso: str,
+    nodo_ip: Optional[str],
+) -> list[TraficoPunto]:
+    async with sem:
+        return await asyncio.to_thread(
+            _query_influx_interval,
+            ip_cliente,
+            rango,
+            start_iso,
+            stop_iso,
+            nodo_ip,
+        )
+
+
+def _resolve_pppoe_node_context(usuario_pppoe: str) -> tuple[Optional[str], Optional[str]]:
+    db = Database()
+    try:
+        diagnosis = db.get_diagnosis(usuario_pppoe)
+    except Exception as exc:
+        config.logger.warning(
+            "[ORACULO][NODO] No se pudo resolver nodo para %s: %s",
+            usuario_pppoe,
+            str(exc)[:180],
+        )
+        return None, None
+    finally:
+        db.close()
+
+    nodo_ip = diagnosis.get("nodo_ip")
+    nodo_influx_ip = _resolve_influx_node_ip(str(nodo_ip)) if nodo_ip else None
+    return (str(nodo_ip) if nodo_ip else None, nodo_influx_ip)
+
+
+async def _build_pppoe_traffic_series(
+    usuario_pppoe: str,
+    rango: str,
+    limite: int = 100,
+) -> tuple[list[TraficoPunto], dict[str, str | int | float]]:
+    metrics: dict[str, str | int | float] = {
+        "cache": "unknown",
+        "segments": 0,
+        "graylog_sec": 0.0,
+        "influx_sec": 0.0,
+    }
+
+    nodo_origen_ip, nodo_influx_ip = _resolve_pppoe_node_context(usuario_pppoe)
+    if nodo_origen_ip:
+        config.logger.info(
+            "[ORACULO][NODO] usuario=%s nodo_db=%s nodo_influx=%s",
+            usuario_pppoe,
+            nodo_origen_ip,
+            nodo_influx_ip or "<sin mapeo>",
+        )
+
+    rango_segundos = _RANGE_SECONDS.get(rango, 0)
+    graylog_range_sec = max(rango_segundos, config.ORACULO_GRAYLOG_RANGE_SEC)
+    graylog_t0 = time.perf_counter()
+    sesiones, cache_status = await _get_cached_graylog_sessions(usuario_pppoe, limite, graylog_range_sec)
+    graylog_dt = time.perf_counter() - graylog_t0
+    metrics["cache"] = cache_status
+    metrics["graylog_sec"] = round(graylog_dt, 3)
+
+    segmentos = _normalize_pppoe_segments(sesiones, rango_segundos)
+    metrics["segments"] = len(segmentos)
+    if not segmentos:
+        return [], metrics
+
+    max_concurrency = max(config.ORACULO_INFLUX_MAX_CONCURRENCY, 1)
+    sem = asyncio.Semaphore(max_concurrency)
+
+    tasks = [
+        _query_influx_interval_async(sem, ip_cliente, rango, start_iso, stop_iso, nodo_influx_ip)
+        for ip_cliente, start_iso, stop_iso in segmentos
+    ]
+
+    influx_t0 = time.perf_counter()
+    batches = await asyncio.gather(*tasks)
+    influx_dt = time.perf_counter() - influx_t0
+    metrics["influx_sec"] = round(influx_dt, 3)
+
+    merged_points: list[TraficoPunto] = []
+    for batch in batches:
+        merged_points.extend(batch)
+
+    return _merge_traffic_points(merged_points), metrics
 
 
 def _format_duration(start: datetime, end: datetime) -> str:
@@ -395,7 +631,7 @@ def _parse_graylog_timestamp(raw_timestamp: str) -> datetime:
     return parsed
 
 
-def _build_flux_query(ip_cliente: str, rango: str) -> str:
+def _build_flux_query(ip_cliente: str, rango: str, nodo_ip: Optional[str] = None) -> str:
     raw_bucket = config.ORACULO_INFLUX_RAW_BUCKET
     resumen_bucket = config.ORACULO_INFLUX_RESUMEN_BUCKET
     raw_measurement = config.ORACULO_INFLUX_RAW_MEASUREMENT
@@ -405,8 +641,10 @@ def _build_flux_query(ip_cliente: str, rango: str) -> str:
     sentido_tag = config.ORACULO_INFLUX_RESUMEN_SENTIDO_TAG
     sentido_descarga = config.ORACULO_INFLUX_SENTIDO_DESCARGA
     sentido_subida = config.ORACULO_INFLUX_SENTIDO_SUBIDA
+    node_tag = config.ORACULO_INFLUX_NODE_TAG
     realtime_window_seconds = config.ORACULO_INFLUX_REALTIME_WINDOW_SECONDS
     resumen_window_seconds = config.ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS
+    node_clause = f' and r["{node_tag}"] == "{nodo_ip}"' if node_tag and nodo_ip else ""
 
     if rango in _REALTIME_RANGES:
         return f'''
@@ -415,14 +653,14 @@ rango = "-{rango}"
 
 descarga = from(bucket: "{raw_bucket}")
     |> range(start: duration(v: rango))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip)
+    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["dst"] == ip{node_clause})
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
     |> set(key: "{sentido_tag}", value: "{sentido_descarga}")
 
 subida = from(bucket: "{raw_bucket}")
     |> range(start: duration(v: rango))
-    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip)
+    |> filter(fn: (r) => r["_measurement"] == "{raw_measurement}" and r["_field"] == "{in_bytes_field}" and r["src"] == ip{node_clause})
     |> keep(columns: ["_time", "_value"])
     |> aggregateWindow(every: 1m, fn: sum, createEmpty: false)
     |> set(key: "{sentido_tag}", value: "{sentido_subida}")
@@ -443,7 +681,7 @@ rango = "-{rango}"
 
 from(bucket: "{resumen_bucket}")
     |> range(start: duration(v: rango))
-    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}")
+    |> filter(fn: (r) => r["_measurement"] == "{resumen_measurement}" and r["_field"] == "{in_bytes_field}" and r["{resumen_ip_tag}"] == "{ip_cliente}"{node_clause})
     |> pivot(rowKey:["_time"], columnKey: ["{sentido_tag}"], valueColumn: "_value")
     |> map(fn: (r) => ({{
         r with descarga_mbps: float(v: r["{sentido_descarga}"]) * 8.0 / {resumen_window_seconds}.0 / 1024.0 / 1024.0,
@@ -456,7 +694,7 @@ from(bucket: "{resumen_bucket}")
     raise HTTPException(status_code=400, detail=f"Rango no soportado: {rango}")
 
 
-def _query_influx_trafico(ip_cliente: str, rango: str) -> list[TraficoPunto]:
+def _query_influx_trafico(ip_cliente: str, rango: str, nodo_ip: Optional[str] = None) -> list[TraficoPunto]:
     influx_url = config.ORACULO_INFLUX_URL
     influx_token = config.ORACULO_INFLUX_TOKEN
     influx_org = config.ORACULO_INFLUX_ORG
@@ -472,7 +710,7 @@ def _query_influx_trafico(ip_cliente: str, rango: str) -> list[TraficoPunto]:
         )
         raise HTTPException(status_code=500, detail="Credenciales de InfluxDB incompletas")
 
-    flux_query = _build_flux_query(ip_cliente, rango)
+    flux_query = _build_flux_query(ip_cliente, rango, nodo_ip=nodo_ip)
 
     attempts = max(config.ORACULO_RETRY_ATTEMPTS, 1)
     last_exc: Optional[Exception] = None
@@ -831,7 +1069,44 @@ async def obtener_trafico_pppoe(
     usuario_pppoe: str,
     rango: Literal["15m", "30m", "60m", "12h", "24h", "7d", "30d"] = Query(default="24h"),
 ) -> list[TraficoPunto]:
-    return await asyncio.to_thread(_build_pppoe_traffic_series, usuario_pppoe, rango)
+    total_t0 = time.perf_counter()
+    status_code = 200
+    points_count = 0
+    metrics: dict[str, str | int | float] = {
+        "cache": "unknown",
+        "segments": 0,
+        "graylog_sec": 0.0,
+        "influx_sec": 0.0,
+    }
+    error_text = ""
+
+    try:
+        puntos, metrics = await _build_pppoe_traffic_series(usuario_pppoe, rango)
+        points_count = len(puntos)
+        return puntos
+    except HTTPException as exc:
+        status_code = exc.status_code
+        error_text = str(exc.detail)
+        raise
+    except Exception as exc:
+        status_code = 500
+        error_text = str(exc)
+        raise
+    finally:
+        total_sec = round(time.perf_counter() - total_t0, 3)
+        _REQUEST_LOGGER.info(
+            "oraculo_pppoe_metrics user=%s rango=%s status=%s cache=%s segments=%s graylog_sec=%s influx_sec=%s total_sec=%s points=%s error=%s",
+            usuario_pppoe,
+            rango,
+            status_code,
+            metrics.get("cache", "unknown"),
+            metrics.get("segments", 0),
+            metrics.get("graylog_sec", 0.0),
+            metrics.get("influx_sec", 0.0),
+            total_sec,
+            points_count,
+            error_text[:180] if error_text else "-",
+        )
 
 
 @router.get("/debug", response_model=OraculoDebugResponse)

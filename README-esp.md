@@ -167,6 +167,7 @@ curl -X GET "http://127.0.0.1:8500/api/v1/oraculo/trafico-pppoe/usuario_pppoe?ra
      -H "x-api-key: tu_clave_secreta_aqui"
 
 Este endpoint orquesta Graylog + InfluxDB para devolver una serie continua de consumo por usuario PPPoE, aunque cambie de IP durante el período.
+Además, cruza la IP del nodo del cliente con el mapeo interno de Influx para reducir la búsqueda y evitar conflictos entre nodos.
 
 Historial de sesiones PPPoE (Oráculo)
 

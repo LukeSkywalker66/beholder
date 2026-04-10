@@ -4,6 +4,25 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join("config", ".env"))
 
+
+def _parse_mapping_env(raw_value: str | None) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    if not raw_value:
+        return mapping
+
+    for chunk in raw_value.replace("\n", ";").split(";"):
+        item = chunk.strip()
+        if not item or "=" not in item:
+            continue
+
+        source_ip, target_ip = item.split("=", 1)
+        source_ip = source_ip.strip()
+        target_ip = target_ip.strip()
+        if source_ip and target_ip:
+            mapping[source_ip] = target_ip
+
+    return mapping
+
 # Variables de entorno
 API_KEY = os.getenv("API_KEY")
 SMARTOLT_BASEURL = os.getenv("SMARTOLT_BASEURL")
@@ -30,12 +49,15 @@ ORACULO_INFLUX_RAW_MEASUREMENT = os.getenv("ORACULO_INFLUX_RAW_MEASUREMENT", "ne
 ORACULO_INFLUX_RESUMEN_MEASUREMENT = os.getenv("ORACULO_INFLUX_RESUMEN_MEASUREMENT", "resumen_5m")
 ORACULO_INFLUX_IN_BYTES_FIELD = os.getenv("ORACULO_INFLUX_IN_BYTES_FIELD", "in_bytes")
 ORACULO_INFLUX_RESUMEN_IP_TAG = os.getenv("ORACULO_INFLUX_RESUMEN_IP_TAG", "ip_cliente")
+ORACULO_INFLUX_NODE_TAG = os.getenv("ORACULO_INFLUX_NODE_TAG", "source")
 ORACULO_INFLUX_RESUMEN_SENTIDO_TAG = os.getenv("ORACULO_INFLUX_RESUMEN_SENTIDO_TAG", "sentido")
 ORACULO_INFLUX_SENTIDO_DESCARGA = os.getenv("ORACULO_INFLUX_SENTIDO_DESCARGA", "descarga")
 ORACULO_INFLUX_SENTIDO_SUBIDA = os.getenv("ORACULO_INFLUX_SENTIDO_SUBIDA", "subida")
 ORACULO_INFLUX_REALTIME_WINDOW_SECONDS = int(os.getenv("ORACULO_INFLUX_REALTIME_WINDOW_SECONDS", "60"))
 ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS = int(os.getenv("ORACULO_INFLUX_RESUMEN_WINDOW_SECONDS", "300"))
 ORACULO_INFLUX_TIMEOUT_MS = int(os.getenv("ORACULO_INFLUX_TIMEOUT_MS", "10000"))
+ORACULO_INFLUX_MAX_CONCURRENCY = int(os.getenv("ORACULO_INFLUX_MAX_CONCURRENCY", "6"))
+ORACULO_NODO_IP_MAP = _parse_mapping_env(os.getenv("ORACULO_NODO_IP_MAP") or os.getenv("ORACULO_NODE_IP_MAP"))
 ORACULO_RETRY_ATTEMPTS = int(os.getenv("ORACULO_RETRY_ATTEMPTS", "3"))
 ORACULO_RETRY_BACKOFF_SEC = float(os.getenv("ORACULO_RETRY_BACKOFF_SEC", "1.0"))
 ORACULO_RETRY_BACKOFF_MULTIPLIER = float(os.getenv("ORACULO_RETRY_BACKOFF_MULTIPLIER", "2.0"))
@@ -58,6 +80,7 @@ if ORACULO_GRAYLOG_USER and not ORACULO_GRAYLOG_PASSWORD:
     ORACULO_GRAYLOG_PASSWORD = "token"
 ORACULO_GRAYLOG_TIMEOUT_SEC = int(os.getenv("ORACULO_GRAYLOG_TIMEOUT_SEC", "15"))
 ORACULO_GRAYLOG_RANGE_SEC = int(os.getenv("ORACULO_GRAYLOG_RANGE_SEC", str(30 * 24 * 60 * 60)))
+ORACULO_GRAYLOG_SESSION_CACHE_TTL_SEC = int(os.getenv("ORACULO_GRAYLOG_SESSION_CACHE_TTL_SEC", "60"))
 ORACULO_GRAYLOG_SORT = os.getenv("ORACULO_GRAYLOG_SORT", "timestamp:asc")
 ORACULO_GRAYLOG_FIELDS = os.getenv("ORACULO_GRAYLOG_FIELDS", "message,source,timestamp")
 
