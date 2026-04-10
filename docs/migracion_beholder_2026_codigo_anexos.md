@@ -7,6 +7,45 @@ Uso recomendado:
 2. Ajustar solo persistencia (PostgreSQL) y wiring particular del nuevo entorno.
 3. Mantener contratos HTTP, nombres de campos y manejo de errores.
 
+## 0. Resumen tecnico compacto de `oraculo_router.py`
+
+Si necesitas inyectar solo el comportamiento central sin llevar todo el archivo, este es el resumen exacto:
+
+- Dependencias nuevas:
+    - `influxdb-client`
+    - `requests`
+    - `asyncio`
+    - `datetime`
+    - `csv`
+    - `io`
+    - `re`
+    - `time`
+    - `pydantic`
+
+- Nuevos endpoints:
+    - `GET /api/v1/oraculo/trafico/{ip_cliente}`
+    - `GET /api/v1/oraculo/sesiones/{usuario_pppoe}`
+    - `GET /api/v1/oraculo/trafico-pppoe/{usuario_pppoe}`
+    - `GET /api/v1/oraculo/debug`
+
+- Collage de segmentos PPPoE:
+    - Graylog reconstruye login/logout.
+    - Se extrae IP cliente del texto de evento.
+    - Se clampa cada sesion al rango pedido.
+    - Se fusionan segmentos solapados o contiguos por IP.
+    - Se consultan segmentos en paralelo en Influx.
+    - Se mergean puntos por timestamp.
+    - Se hace fallback a raw si el resumen no devuelve puntos.
+
+- Funciones asincronas relevantes:
+    - `_get_cached_graylog_sessions(...)`
+    - `_query_influx_interval_async(...)`
+    - `_build_pppoe_traffic_series(...)`
+    - `obtener_trafico_pppoe(...)`
+
+Resumen en una sola frase:
+`oraculo_router.py` convierte sesiones PPPoE dinamicas en una serie temporal de trafico, resolviendo Graylog + Influx con cache, concurrencia acotada, fallback raw y logging estructurado.
+
 ---
 
 ## A. app/oraculo_router.py (fuente completo)

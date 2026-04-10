@@ -44,6 +44,62 @@ Se implemento y valido la linea de trabajo Oraculo 2.0 para trafico PPPoE con IP
   - Linea estructurada por request en endpoint PPPoE:
     - usuario, rango, status, cache hit/miss, cantidad segmentos, tiempos parciales y total, puntos resultantes.
 
+## 3. Resumen tecnico de `oraculo_router.py`
+
+Resumen pensado para inyectar en otra instancia de la app sin tener que reconstruir el analisis.
+
+### 3.1 Dependencias nuevas
+
+- `influxdb-client` para ejecutar consultas Flux contra InfluxDB v2.
+- `requests` para las consultas HTTP a Graylog.
+- `asyncio`, `time`, `csv`, `io`, `re` y `datetime` para orquestacion, normalizacion y parseo.
+- `pydantic` para los modelos de respuesta del router.
+
+### 3.2 Estructura de los nuevos endpoints
+
+- `GET /api/v1/oraculo/trafico/{ip_cliente}`
+  - Devuelve trafico historico o realtime por IP fija.
+
+- `GET /api/v1/oraculo/sesiones/{usuario_pppoe}`
+  - Devuelve historial de sesiones PPPoE derivado de Graylog.
+
+- `GET /api/v1/oraculo/trafico-pppoe/{usuario_pppoe}`
+  - Resuelve sesiones PPPoE + IP dinamica + Influx por segmentos.
+
+- `GET /api/v1/oraculo/debug`
+  - Probe simple de Influx y Graylog para diagnostico operativo.
+
+### 3.3 Logica de collage de segmentos PPPoE
+
+- Busca eventos login/logout en Graylog dentro de una ventana amplia.
+- Extrae la IP cliente desde el mensaje de log.
+- Convierte cada sesion en un segmento `inicio/fin`.
+- Clampa cada segmento al rango solicitado.
+- Ordena y fusiona segmentos solapados o contiguos por IP.
+- Lanza consultas en Influx por segmento y luego mergea los puntos por timestamp.
+- Si el bucket resumido no devuelve datos, cae a consulta raw para no perder cobertura.
+
+### 3.4 Funciones asincronas de Influx y Graylog
+
+- `_get_cached_graylog_sessions(...)`
+  - Cache TTL para sesiones Graylog.
+  - Evita repetir consultas costosas en requests cercanos.
+
+- `_query_influx_interval_async(...)`
+  - Wrapper asincrono para ejecutar consultas Influx en paralelo con semaforo.
+
+- `_build_pppoe_traffic_series(...)`
+  - Coordina cache Graylog, normalizacion de segmentos y fan-out a Influx.
+
+- `obtener_trafico_pppoe(...)`
+  - Expone el endpoint y registra metricas estructuradas por request.
+
+### 3.5 Formato resumido para reutilizacion rapida
+
+Este bloque puede copiarse casi literal a otra sesion:
+
+> `oraculo_router.py` implementa un router FastAPI aislado que resuelve trafico PPPoE dinamico. Usa Graylog para reconstruir sesiones login/logout, normaliza segmentos por IP y rango, consulta Influx en paralelo por segmento con concurrencia acotada y cache TTL, y fusiona resultados en una serie temporal unica. Incluye fallback de bucket resumido a raw, endpoint de debug, y logging estructurado por request. Depende de `influxdb-client`, `requests`, `asyncio`, `datetime`, `csv`, `io` y `re`.
+
 ## 3. Archivos impactados
 
 Implementacion principal:
